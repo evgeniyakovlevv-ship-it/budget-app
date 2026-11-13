@@ -183,6 +183,8 @@ body.auth .sidebar, body.auth .bottomnav{display:none}
 .login .err{color:var(--red);font-size:13px;min-height:18px;margin-top:10px}
 .offline{background:color-mix(in srgb,var(--yellow) 18%,transparent);color:var(--yellow);font-size:13px;border-radius:10px;padding:8px 12px;margin-bottom:12px;text-align:center}
 
+.qrbar{display:flex;width:100%;align-items:center;justify-content:center;margin:0 0 12px}
+@media (min-width:900px){.qrbar{display:none}}
 .filebtn{display:flex;align-items:center;justify-content:center;margin:0;color:inherit;font-size:15px;cursor:pointer}
 .btn.primary.filebtn{color:#fff}
 textarea{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;width:100%;outline:none;margin:8px 0;font-size:13px;resize:vertical}
@@ -414,7 +416,7 @@ function viewHome() {
   var pInc = recTotal(ym, 'income'), pExp = recTotal(ym, 'expense'), pSav = recTotal(ym, 'saving');
   var left = inc - exp - sav;
 
-  var html = '<div class="topbar"><div class="title">Обзор</div>' + monthSwitcher() + '</div>';
+  var html = '<div class="topbar"><div class="title">Обзор</div>' + monthSwitcher() + '</div>' + '<button class="btn ghost qrbar" data-act="rc-scan">📷 Добавить чек по QR</button>';
   html += '<div class="cards">' +
     card('Доходы', money(inc), 'pos', pInc ? 'план ' + money(pInc) : '') +
     card('Расходы', money(exp), 'neg', pExp ? 'обязательные ' + money(pExp) : '') +
@@ -530,7 +532,7 @@ function viewOps() {
     var v = names[k], label = (f.type === 'all' ? TYPES[v[0]].one + ': ' : '') + v[1];
     return '<option value="' + esc(k) + '"' + (f.cat === k ? ' selected' : '') + '>' + esc(label) + '</option>';
   }).join('');
-  return '<div class="topbar"><div class="title">Операции</div>' + monthSwitcher() + '</div>' +
+  return '<div class="topbar"><div class="title">Операции</div>' + monthSwitcher() + '</div>' + '<button class="btn ghost qrbar" data-act="rc-scan">📷 Добавить чек по QR</button>' +
     '<div class="chips">' + [['all', 'Все']].concat(TYPE_KEYS.map(function (t) { return [t, TYPES[t].many]; })).map(function (c) {
       return '<button class="chip' + (f.type === c[0] && !f.noRcpt ? ' on' : '') + '" data-act="ftype" data-t="' + c[0] + '">' + c[1] + '</button>';
     }).join('') + '<button class="chip' + (f.noRcpt ? ' on' : '') + '" data-act="fnorc">📷 Без чека ' + opsOf(S.ym).filter(needsReceipt).length + '</button></div>' +

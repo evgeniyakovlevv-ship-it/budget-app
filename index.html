@@ -183,6 +183,23 @@ body.auth .sidebar, body.auth .bottomnav{display:none}
 .login .err{color:var(--red);font-size:13px;min-height:18px;margin-top:10px}
 .offline{background:color-mix(in srgb,var(--yellow) 18%,transparent);color:var(--yellow);font-size:13px;border-radius:10px;padding:8px 12px;margin-bottom:12px;text-align:center}
 
+.filebtn{display:flex;align-items:center;justify-content:center;margin:0;color:inherit;font-size:15px;cursor:pointer}
+.btn.primary.filebtn{color:#fff}
+textarea{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;width:100%;outline:none;margin:8px 0;font-size:13px;resize:vertical}
+.qrtext summary{cursor:pointer}
+.rcsum{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;background:var(--panel2);border-radius:12px;padding:10px 12px;margin-bottom:10px}
+.rch{font-size:14px;margin:12px 0 8px}
+.rcopts{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.rcitems{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.rcitem{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border)}
+.rcitem:last-child{border-bottom:none}
+.rcitem .mid{flex:1;min-width:0}
+.rcitem .t1{font-size:13px;line-height:1.25}
+.rcitem .t2{font-size:12px;color:var(--muted)}
+.rcitem select{width:42%;min-height:36px;padding:6px 8px;font-size:12px;flex:none}
+.rctot{display:flex;justify-content:space-between;gap:10px;padding:3px 0;font-size:14px}
+.rcmark{font-size:12px;margin-left:4px}
+.rcmark.wait{opacity:.55}
 .toast{position:fixed;left:50%;bottom:90px;transform:translate(-50%,20px);background:#2d333b;color:#fff;padding:11px 18px;border-radius:12px;font-size:14px;opacity:0;pointer-events:none;transition:.2s;z-index:100;max-width:90vw;text-align:center}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 .toast.err{background:#8e1519}
@@ -209,6 +226,7 @@ body.auth .sidebar, body.auth .bottomnav{display:none}
   <aside class="sidebar">
     <div class="brand">💰 Бюджет</div>
     <button class="btn primary" data-act="add">+ Добавить операцию</button>
+    <button class="btn ghost" data-act="rc-scan" style="flex:none;margin:-8px 0 14px">📷 Чек по QR</button>
     <div id="sidenav"></div>
   </aside>
   <main class="main" id="main"><div class="loader"><div class="spin"></div>Загрузка…</div></main>
@@ -414,6 +432,16 @@ function viewHome() {
         '<div class="amt ' + TYPES[it.type].cls + '">' + money(it.amount, TYPES[it.type].sign) + '</div></button>';
     }).join('') + '</div>';
   }
+  var prc = S.data.receipts || [];
+  if (prc.length) {
+    html += '<div class="section inbox"><h3>🧾 Чеки без пары <small>' + prc.length + '</small></h3>' + prc.map(function (rc) {
+      var c0 = rc.candidates && rc.candidates[0];
+      var hint = c0 ? (c0.exact ? '<span style="color:var(--green)">нашлась оплата — привязать</span>' : 'есть похожие оплаты — проверьте') : 'ждёт SMS · можно выбрать вручную';
+      return '<button class="item" data-act="rc-open" data-id="' + rc.id + '"><div class="ico" style="--c:#d29922">🧾</div>' +
+        '<div class="mid"><div class="t1">' + esc(rcTitle(rc)) + '</div><div class="t2">' + rcWhen(rc) + ' · ' + hint + '</div></div>' +
+        '<div class="amt neg">' + money(rc.sum, '−') + '</div></button>';
+    }).join('') + '</div>';
+  }
 
   // лимиты
   var spent = {};
@@ -504,8 +532,8 @@ function viewOps() {
   }).join('');
   return '<div class="topbar"><div class="title">Операции</div>' + monthSwitcher() + '</div>' +
     '<div class="chips">' + [['all', 'Все']].concat(TYPE_KEYS.map(function (t) { return [t, TYPES[t].many]; })).map(function (c) {
-      return '<button class="chip' + (f.type === c[0] ? ' on' : '') + '" data-act="ftype" data-t="' + c[0] + '">' + c[1] + '</button>';
-    }).join('') + '</div>' +
+      return '<button class="chip' + (f.type === c[0] && !f.noRcpt ? ' on' : '') + '" data-act="ftype" data-t="' + c[0] + '">' + c[1] + '</button>';
+    }).join('') + '<button class="chip' + (f.noRcpt ? ' on' : '') + '" data-act="fnorc">📷 Без чека ' + opsOf(S.ym).filter(needsReceipt).length + '</button></div>' +
     '<div class="filters"><select id="fcat"><option value="">Все категории</option>' + opts + '</select>' +
     '<input id="fq" type="search" placeholder="Поиск…" value="' + esc(f.q) + '"></div>' +
     '<div id="opsList"></div>';
@@ -515,6 +543,7 @@ function renderOpsList() {
   var f = S.filter, q = f.q.trim().toLowerCase();
   var list = opsOf(S.ym).filter(function (o) {
     if (f.type !== 'all' && o.type !== f.type) return false;
+    if (f.noRcpt && !needsReceipt(o)) return false;
     if (f.cat && f.cat !== o.type + '|' + o.category) return false;
     if (q && (o.category + ' ' + o.comment).toLowerCase().indexOf(q) < 0) return false;
     return true;
@@ -539,7 +568,7 @@ function renderOpsList() {
     }
     var c = catInfo(o.type, o.category);
     html += '<button class="item" data-act="edit-op" data-id="' + o.id + '"><div class="ico" style="--c:' + c.color + '">' + esc(c.icon) + '</div>' +
-      '<div class="mid"><div class="t1">' + esc(o.category) + '</div>' + (o.comment ? '<div class="t2">' + esc(o.comment) + '</div>' : '') + '</div>' +
+      '<div class="mid"><div class="t1">' + esc(o.category) + (o.receiptId ? '<span class="rcmark" title="Есть чек">🧾</span>' : needsReceipt(o) ? '<span class="rcmark wait" title="Нет чека">📷</span>' : '') + '</div>' + (o.comment ? '<div class="t2">' + esc(o.comment) + '</div>' : '') + '</div>' +
       '<div class="amt ' + TYPES[o.type].cls + '">' + money(o.amount, TYPES[o.type].sign) + '</div></button>';
   });
   box.innerHTML = html + '</div>';
@@ -579,7 +608,7 @@ function viewCats() {
   if (t === 'expense') html += '<p class="muted small" style="margin:0 2px 10px">Задайте лимит на месяц — в обзоре появится шкала, сколько осталось.</p>';
   var list = catsOf(t, true);
   html += '<div class="section">' + (list.length ? list.map(function (c) {
-    var sub = c.archived ? 'в архиве' : (t === 'expense' ? (c.limit ? 'лимит ' + money(c.limit) + ' в месяц' : 'без лимита') : '');
+    var sub = c.archived ? 'в архиве' : (t === 'expense' ? (c.limit ? 'лимит ' + money(c.limit) + ' в месяц' : 'без лимита') + (c.waitReceipt ? ' · 🧾 ждём чек' : '') : '');
     return '<button class="item' + (c.archived ? ' off' : '') + '" data-act="edit-cat" data-id="' + c.id + '"><div class="ico" style="--c:' + c.color + '">' + esc(c.icon) + '</div>' +
       '<div class="mid"><div class="t1">' + esc(c.name) + '</div>' + (sub ? '<div class="t2">' + sub + '</div>' : '') + '</div><span class="muted">›</span></button>';
   }).join('') : '<div class="empty">Категорий нет</div>') + '</div>';
@@ -590,6 +619,13 @@ function viewCats() {
       var what = r.type === 'skip' ? 'не учитывать' : TYPES[r.type].one + ' → ' + esc(r.category);
       return '<div class="rule"><div class="mid"><div class="t1">' + esc(r.pattern) + '</div><div class="t2">' + what + '</div></div>' +
         '<button class="x" data-act="rule-del" data-id="' + r.id + '" aria-label="Удалить">✕</button></div>';
+    }).join('') : '<div class="empty">Правил нет</div>') + '</details>';
+  var irules = S.data.itemRules || [];
+  html += '<details class="section rules"' + (S.irulesOpen ? ' open' : '') + ' data-k="irulesOpen"><summary>Правила для товаров из чеков <span class="muted small">' + irules.length + ' ›</span></summary>' +
+    '<p class="muted small" style="margin-bottom:8px">Если название товара в чеке содержит шаблон — товар сразу попадёт в категорию. Создаются галочкой «Запомнить» при разборе чека.</p>' +
+    (irules.length ? irules.map(function (r) {
+      return '<div class="rule"><div class="mid"><div class="t1">' + esc(r.pattern) + '</div><div class="t2">→ ' + esc(r.category) + '</div></div>' +
+        '<button class="x" data-act="irule-del" data-id="' + r.id + '" aria-label="Удалить">✕</button></div>';
     }).join('') : '<div class="empty">Правил нет</div>') + '</details>';
   html += '<div class="section"><h3>Аккаунт</h3><div class="actions"><button class="btn ghost" data-act="change-pass">Сменить пароль</button><button class="btn danger" data-act="logout">Выйти</button></div></div>';
   html += '<p class="small muted" style="text-align:center;margin-top:16px">Все данные хранятся в вашей Google Таблице: <a href="' + esc(S.data.sheetUrl) + '" target="_blank">открыть таблицу</a></p>';
@@ -633,6 +669,7 @@ function renderOpForm(focus) {
   if (F.category && !list.some(function (c) { return c.name === F.category; })) list = list.concat([catInfo(F.type, F.category)]);
   openSheet(sheetHead(F.inboxId ? 'Операция из банка' : (F.id ? 'Изменить операцию' : 'Новая операция')) +
     (F.inboxId ? '<div class="sms">' + esc(F.smsText) + '</div>' : '') +
+    rcFormButtons() +
     segHtml(F.type, 'op-type') +
     '<input id="f-amount" class="amount" inputmode="decimal" placeholder="0 ₽" autocomplete="off" value="' + esc(F.amount) + '">' +
     '<div class="hint">Можно сложить несколько сумм: 350+120</div>' +
@@ -649,6 +686,21 @@ function renderOpForm(focus) {
     '<div class="actions">' + (F.id ? '<button class="btn danger" data-act="op-del">Удалить</button>' : '<button class="btn ghost" data-act="op-save" data-more="1">Сохранить и ещё</button>') +
     '<button class="btn primary" data-act="op-save">Сохранить</button></div>'));
   if (focus) setTimeout(function () { var a = $('#f-amount'); if (a) a.focus(); }, 60);
+}
+function rcFormButtons() {
+  if (!S.data) return '';
+  if (!F.id && !F.inboxId) return '<div class="actions" style="margin:-4px 0 12px"><button class="btn ghost small" data-act="rc-scan">📷 Чек по QR</button></div>';
+  if (F.type !== 'expense') return '';
+  if (F.inboxId) {
+    var hint = (S.data.receipts || []).find(function (rc) { return (rc.candidates || []).some(function (c) { return c.kind === 'inbox' && c.id === F.inboxId; }); });
+    return '<div class="actions" style="margin:-4px 0 12px">' +
+      (hint ? '<button class="btn primary small" data-act="rc-hint" data-id="' + hint.id + '">🧾 Есть чек ' + esc(rcTitle(hint)) + ' — привязать</button>' : '') +
+      '<button class="btn ghost small" data-act="rc-op">📷 Чек</button></div>';
+  }
+  var o = S.data.ops.find(function (x) { return x.id === F.id; }) || {};
+  if (o.receiptId) { F.receiptId = o.receiptId; return '<div class="actions" style="margin:-4px 0 12px"><button class="btn ghost small" data-act="rc-view">🧾 Чек — состав покупки</button></div>'; }
+  return '<div class="actions" style="margin:-4px 0 12px"><button class="btn ghost small" data-act="rc-op">📷 Добавить чек</button>' +
+    '<button class="btn ghost small" data-act="rc-nn">' + (o.noReceipt ? '↩︎ Снова ждать чек' : 'Чек не нужен') + '</button></div>';
 }
 function saveOp(more) {
   syncOpForm();
@@ -690,7 +742,7 @@ function deleteOp(btn) {
 
 // --- категория ---
 function openCatForm(cat) {
-  F = Object.assign({ kind: 'cat', id: '', type: S.catTab, name: '', icon: '📦', color: PALETTE[0], limit: '', archived: false }, cat || {});
+  F = Object.assign({ kind: 'cat', id: '', type: S.catTab, name: '', icon: '📦', color: PALETTE[0], limit: '', archived: false, waitReceipt: false }, cat || {});
   if (typeof F.limit === 'number') F.limit = F.limit ? String(F.limit) : '';
   renderCatForm();
 }
@@ -698,6 +750,7 @@ function syncCatForm() {
   if (!F || F.kind !== 'cat' || !$('#c-name')) return;
   F.name = val('c-name'); F.icon = val('c-icon'); F.limit = val('c-limit');
   var a = $('#c-arch'); if (a) F.archived = a.checked;
+  var w = $('#c-wait'); if (w) F.waitReceipt = w.checked;
 }
 function renderCatForm() {
   openSheet(sheetHead(F.id ? 'Категория' : 'Новая категория') +
@@ -707,7 +760,8 @@ function renderCatForm() {
     '<label>Цвет</label><div class="colors">' + PALETTE.map(function (c) {
       return '<button class="' + (F.color === c ? 'on' : '') + '" style="--c:' + c + '" data-act="cat-color" data-c="' + c + '" aria-label="' + c + '"></button>';
     }).join('') + '</div>' +
-    (F.type === 'expense' ? '<label>Лимит в месяц, ₽<input id="c-limit" inputmode="decimal" placeholder="Без лимита" value="' + esc(F.limit) + '"></label>' : '') +
+    (F.type === 'expense' ? '<label>Лимит в месяц, ₽<input id="c-limit" inputmode="decimal" placeholder="Без лимита" value="' + esc(F.limit) + '"></label>' +
+      '<label class="check"><input type="checkbox" id="c-wait"' + (F.waitReceipt ? ' checked' : '') + '>Ждать чек по покупкам (фильтр «Без чека»)</label>' : '') +
     (F.id ? '<label class="check"><input type="checkbox" id="c-arch"' + (F.archived ? ' checked' : '') + '>В архиве (скрыть при вводе)</label>' : '') +
     '<div class="actions">' + (F.id ? '<button class="btn danger" data-act="cat-del">Удалить</button>' : '') +
     '<button class="btn primary" data-act="cat-save">Сохранить</button></div>');
@@ -719,7 +773,7 @@ function saveCat() {
   if (isNaN(limit) || limit < 0) return toast('Неверный лимит', true);
   var old = F.id ? S.data.cats.find(function (c) { return c.id === F.id; }) : null;
   busy(true);
-  call('saveCategory', { id: F.id, type: F.type, name: F.name, icon: F.icon, color: F.color, limit: limit, archived: F.archived })
+  call('saveCategory', { id: F.id, type: F.type, name: F.name, icon: F.icon, color: F.color, limit: limit, archived: F.archived, waitReceipt: !!F.waitReceipt })
     .then(function (saved) {
       if (old && old.name !== saved.name) {
         S.data.ops.forEach(function (o) { if (o.type === saved.type && o.category === old.name) o.category = saved.name; });
@@ -804,7 +858,7 @@ var ACTIONS = {
   'add': function () { openOpForm(); },
   'close': function () { closeSheet(); },
   'goto-cat': function (el) { S.view = 'ops'; S.filter = { type: el.dataset.type, cat: el.dataset.type + '|' + el.dataset.name, q: '' }; render(true); },
-  'ftype': function (el) { S.filter.type = el.dataset.t; S.filter.cat = ''; render(); },
+  'ftype': function (el) { S.filter.type = el.dataset.t; S.filter.cat = ''; S.filter.noRcpt = false; render(); },
   'edit-op': function (el) {
     var o = S.data.ops.find(function (x) { return x.id === el.dataset.id; });
     if (o) openOpForm(Object.assign({}, o));
@@ -892,7 +946,7 @@ document.addEventListener('click', function (e) {
   if (fn) { e.preventDefault(); fn(el); }
 });
 document.addEventListener('toggle', function (e) {
-  if (e.target.classList && e.target.classList.contains('rules')) S.rulesOpen = e.target.open;
+  if (e.target.classList && e.target.classList.contains('rules')) S[e.target.dataset.k || 'rulesOpen'] = e.target.open;
 }, true);
 document.addEventListener('input', function (e) {
   if (e.target.id === 'fq') { S.filter.q = e.target.value; renderOpsList(); }
@@ -974,7 +1028,7 @@ function savePassword() {
   var cached = lsGet(LS.cache);
   if (cached) { try { S.data = JSON.parse(cached); render(); } catch (e) {} }
   call('getData').then(function (data) {
-    S.data = data; render();
+    S.data = data; render(); handleShare();
   }).catch(function (e) {
     if (!lsGet(LS.token)) return; // уже показан экран входа
     if (S.data) { S.offline = true; render(); }
@@ -985,6 +1039,338 @@ function savePassword() {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
 }
+</script>
+<script>
+// ======================= Чеки по QR =======================
+var RC_OK_KIND = /покупк|оплат|чек/i;
+
+// Ждём ли чек по этой операции: расход по «чековой» категории, вид из банка — покупка/оплата
+function needsReceipt(o) {
+  if (o.type !== 'expense' || o.receiptId || o.noReceipt) return false;
+  if (!catInfo('expense', o.category).waitReceipt) return false;
+  return !o.kind || RC_OK_KIND.test(o.kind);
+}
+function rcTitle(rc) { return rc.store || 'Чек'; }
+function rcWhen(rc) { return (rc.date ? dayShort(rc.date) : '') + (rc.time ? ', ' + rc.time : ''); }
+function rcSummary(rc) {
+  return '<div class="rcsum"><div><b>' + esc(rcTitle(rc)) + '</b><div class="muted small">' + rcWhen(rc) + '</div></div><b>' + money(rc.sum) + '</b></div>' +
+    (rc.error ? '<div class="sms">⚠️ ' + esc(rc.error) + '</div>' : '');
+}
+function expCatOptions(cur, emptyLabel) {
+  return '<option value="">' + emptyLabel + '</option>' + catsOf('expense').map(function (c) {
+    return '<option value="' + esc(c.name) + '"' + (cur === c.name ? ' selected' : '') + '>' + esc(c.icon + ' ' + c.name) + '</option>';
+  }).join('');
+}
+
+// ---------- распознавание QR ----------
+function loadJsQR() {
+  if (window.jsQR) return Promise.resolve(window.jsQR);
+  return new Promise(function (ok, fail) {
+    var s = document.createElement('script');
+    s.src = 'jsQR.js';
+    s.onload = function () { ok(window.jsQR); };
+    s.onerror = function () { fail('Не удалось загрузить распознавание QR'); };
+    document.head.appendChild(s);
+  });
+}
+function decodeQrFile(file) {
+  return createImageBitmap(file).then(function (bmp) {
+    var native = ('BarcodeDetector' in window) ?
+      BarcodeDetector.getSupportedFormats().then(function (f) {
+        if (f.indexOf('qr_code') < 0) return '';
+        return new BarcodeDetector({ formats: ['qr_code'] }).detect(bmp).then(function (r) {
+          var hit = r.find(function (x) { return /t=\d{8}T/i.test(x.rawValue); }) || r[0];
+          return hit ? hit.rawValue : '';
+        });
+      }).catch(function () { return ''; }) : Promise.resolve('');
+    return native.then(function (txt) {
+      if (txt) return txt;
+      return loadJsQR().then(function (jsQR) {
+        var side = Math.max(bmp.width, bmp.height);
+        var sizes = [Math.min(side, 2400), 1400, 900].filter(function (v, i, a) { return v <= side && a.indexOf(v) === i; });
+        if (!sizes.length) sizes = [side];
+        for (var i = 0; i < sizes.length; i++) {
+          var k = sizes[i] / side, w = Math.round(bmp.width * k), h = Math.round(bmp.height * k);
+          var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+          var cx = cv.getContext('2d'); cx.drawImage(bmp, 0, 0, w, h);
+          var res = jsQR(cx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'attemptBoth' });
+          if (res && res.data) return res.data;
+        }
+        return '';
+      });
+    });
+  }).then(function (txt) {
+    if (!txt) throw 'QR-код не найден. Сфотографируйте его крупнее и ровнее или обрежьте скриншот.';
+    return txt;
+  });
+}
+
+// ---------- шаг 1: выбрать фото/скриншот ----------
+function openScan(target) {
+  F = { kind: 'rcpt', target: target || null };
+  openSheet(sheetHead('Чек по QR') +
+    (target ? '<div class="sms">Чек для операции: ' + esc(target.title || '') + (target.amount ? ' · ' + money(target.amount) : '') + '</div>' : '') +
+    '<p class="muted small" style="margin-bottom:12px">Сфотографируйте QR-код на чеке или выберите скриншот чека из Ozon, Купера и т.п.</p>' +
+    '<div class="actions" style="margin-bottom:12px"><label class="btn primary filebtn">📷 Камера<input type="file" id="qr-cam" accept="image/*" capture="environment" hidden></label>' +
+    '<label class="btn ghost filebtn">🖼 Скриншот<input type="file" id="qr-file" accept="image/*" hidden></label></div>' +
+    '<details class="qrtext"><summary class="muted small">Ввести строку QR вручную</summary>' +
+    '<textarea id="qr-raw" rows="3" placeholder="t=20251110T1536&s=1995.37&fn=…&i=…&fp=…&n=1"></textarea>' +
+    '<div class="actions"><button class="btn ghost" data-act="rc-raw">Найти чек</button></div></details>' +
+    (S.data.receiptsEnabled ? '' : '<p class="muted small" style="margin-top:12px">Сервис чеков ещё не подключён: сохранятся сумма и дата, без списка товаров.</p>'));
+}
+function submitQr(text) {
+  text = String(text || '').trim();
+  if (!/t=\d{8}T\d{4}/i.test(text)) return toast('Это не QR-код кассового чека', true);
+  if (F && F.kind === 'rcpt') busy(true);
+  else F = { kind: 'rcpt', target: null };
+  toast('Ищу чек…');
+  return api('scanReceipt', { qr: text }).then(function (res) {
+    F.receipt = res.receipt; F.candidates = res.candidates || [];
+    if (res.duplicate && res.receipt.status === 'привязан') { toast('Этот чек уже добавлен'); return showReceipt(res.receipt); }
+    if (F.target) return goSplit(F.target);
+    if (F.candidates.length) renderMatch(); else renderNoPair();
+  }).catch(function (e) { if ($('#sheet')) busy(false); toast(e, true); });
+}
+
+// ---------- шаг 2: пара ----------
+function candHtml(c, i, act) {
+  var note = c.exact ? 'сумма совпадает' : 'сумма в банке ' + (c.diff > 0 ? 'больше' : 'меньше') + ' на ' + money(Math.abs(c.diff));
+  return '<button class="item" data-act="' + act + '" data-i="' + i + '"><div class="ico" style="--c:' + (c.kind === 'inbox' ? '#2f81f7' : '#3fb950') + '">' + (c.kind === 'inbox' ? '📥' : '💳') + '</div>' +
+    '<div class="mid"><div class="t1">' + esc(c.title) + '</div><div class="t2">' + dayShort(c.date) + ' · ' + (c.kind === 'inbox' ? 'из банка, не разобрана' : esc(c.category)) + ' · ' + note + '</div></div>' +
+    '<div class="amt neg">' + money(c.amount, '−') + '</div></button>';
+}
+function renderMatch() {
+  var c0 = F.candidates[0];
+  openSheet(sheetHead('Чек найден') + rcSummary(F.receipt) +
+    '<h4 class="rch">' + (c0.exact && c0.score >= 100 ? 'Похоже, это оплата:' : 'Возможные оплаты — выберите:') + '</h4>' +
+    '<div class="section" style="padding:6px">' + F.candidates.map(function (c, i) { return candHtml(c, i, 'rc-pick'); }).join('') + '</div>' +
+    noPairButtons());
+}
+function noPairButtons() {
+  return '<div class="rcopts">' +
+    '<button class="btn ghost" data-act="rc-manual">Выбрать операцию вручную</button>' +
+    '<button class="btn ghost" data-act="rc-new">Создать операцию из чека</button>' +
+    '<button class="btn ghost" data-act="rc-later">Отложить — дождусь SMS</button>' +
+    (F.receipt.status !== 'привязан' ? '<button class="btn danger" data-act="rc-del">Удалить чек</button>' : '') + '</div>';
+}
+function renderNoPair() {
+  openSheet(sheetHead('Пара не найдена') + rcSummary(F.receipt) +
+    '<div class="sms">Не нашёл расход на эту сумму с ' + dayShort(shiftDay(F.receipt.date, -3)) + ' по ' + dayShort(shiftDay(F.receipt.date, 1)) + '. ' +
+    'Возможно, SMS ещё не пришла, оплата была в другой день, или сумма в банке отличается (частичный возврат, оплата баллами, несколько чеков на одну оплату). ' +
+    'Посмотрите список вручную — если причина в другом, расскажите, поправлю поиск.</div>' + noPairButtons());
+}
+function shiftDay(iso, k) {
+  var p = iso.split('-').map(Number), d = new Date(p[0], p[1] - 1, p[2] + k);
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+function renderManual() {
+  var rc = F.receipt, from = shiftDay(rc.date, -10), to = shiftDay(rc.date, 5);
+  var list = S.data.ops.filter(function (o) { return o.type === 'expense' && !o.receiptId && o.date >= from && o.date <= to; })
+    .map(function (o) { return { kind: 'op', id: o.id, date: o.date, amount: o.amount, title: o.comment || o.category, category: o.category }; })
+    .concat((S.data.inbox || []).filter(function (it) { return it.type === 'expense'; })
+      .map(function (it) { return { kind: 'inbox', id: it.id, date: it.date, amount: it.amount, title: it.merchant, category: '' }; }));
+  list.forEach(function (c) { c.diff = Math.round((c.amount - rc.sum) * 100) / 100; c.exact = Math.abs(c.diff) < 0.01; });
+  list.sort(function (a, b) { return Math.abs(a.diff) - Math.abs(b.diff); });
+  F.manual = list.slice(0, 30);
+  openSheet(sheetHead('Выберите операцию') + rcSummary(rc) +
+    '<p class="muted small" style="margin-bottom:8px">Расходы без чека с ' + dayShort(from) + ' по ' + dayShort(to) + ', ближайшие по сумме сверху.</p>' +
+    '<div class="section" style="padding:6px">' + (F.manual.length ? F.manual.map(function (c, i) { return candHtml(c, i, 'rc-pick-m'); }).join('') : '<div class="empty">Подходящих операций нет</div>') + '</div>' +
+    '<div class="actions"><button class="btn ghost" data-act="rc-back">Назад</button><button class="btn ghost" data-act="rc-new">Создать из чека</button></div>' +
+    '<div class="actions"><button class="btn ghost" data-act="rc-later">Отложить — дождусь SMS</button></div>');
+}
+
+// ---------- шаг 3: разнести по категориям ----------
+function goSplit(target) {
+  var rc = F.receipt, op = null, it = null;
+  if (target.kind === 'op') op = S.data.ops.find(function (o) { return o.id === target.id; });
+  if (target.kind === 'inbox') it = (S.data.inbox || []).find(function (x) { return x.id === target.id; });
+  F.target = target;
+  F.bank = op ? op.amount : it ? it.amount : rc.sum;
+  F.targetTitle = op ? (op.comment || op.category) : it ? it.merchant : 'новая операция';
+  F.main = target.category || (op && catInfo('expense', op.category).waitReceipt ? op.category : (op ? op.category : ''));
+  F.itemCats = (rc.items || []).map(function (x) { return x.cat || ''; });
+  F.ruleCats = (rc.items || []).map(function (x) { return x.cat || ''; });
+  F.remember = true;
+  renderSplit();
+}
+function splitParts() {
+  var rc = F.receipt, by = {}, items = rc.items || [];
+  if (!items.length) { if (F.main) by[F.main] = rc.sum; }
+  items.forEach(function (x, i) {
+    var c = F.itemCats[i] || F.main || '?';
+    by[c] = Math.round(((by[c] || 0) + x.sum) * 100) / 100;
+  });
+  return Object.keys(by).map(function (k) { return { category: k, amount: by[k] }; }).sort(function (a, b) { return b.amount - a.amount; });
+}
+function totalsHtml() {
+  var parts = splitParts(), diff = Math.round((F.bank - F.receipt.sum) * 100) / 100;
+  return parts.map(function (p) {
+    var c = catInfo('expense', p.category);
+    return '<div class="rctot"><span>' + (p.category === '?' ? '❓ без категории' : esc(c.icon + ' ' + p.category)) + '</span><b>' + money(p.amount) + '</b></div>';
+  }).join('') + (Math.abs(diff) >= 0.01 ? '<div class="muted small" style="margin-top:6px">В банке ' + money(F.bank) + ' — разница ' + money(diff) + ' будет учтена в самой крупной категории.</div>' : '');
+}
+function renderSplit() {
+  var rc = F.receipt, items = rc.items || [];
+  var canRetry = !items.length && rc.error && !/некорректен/i.test(rc.error) && S.data.receiptsEnabled;
+  openSheet(sheetHead('Разнести чек') + rcSummary(rc) +
+    '<div class="muted small" style="margin-bottom:10px">Операция: ' + esc(F.targetTitle) + ' · ' + money(F.bank) + '</div>' +
+    (canRetry ? '<div class="actions" style="margin-bottom:12px"><button class="btn ghost" data-act="rc-retry">↻ Запросить состав чека ещё раз</button></div>' : '') +
+    '<h4 class="rch">' + (items.length ? 'Категория для всех товаров' : 'Категория') + '</h4>' +
+    '<div class="cgrid">' + catsOf('expense').map(function (c) {
+      return '<button class="cchip' + (F.main === c.name ? ' on' : '') + '" style="--c:' + c.color + '" data-act="rc-main" data-name="' + esc(c.name) + '"><span>' + esc(c.icon) + '</span>' + esc(c.name) + '</button>';
+    }).join('') + '</div>' +
+    (items.length ? '<h4 class="rch">Товары <small class="muted">— можно задать категорию отдельно</small></h4><div class="rcitems">' + items.map(function (x, i) {
+      return '<div class="rcitem"><div class="mid"><div class="t1">' + esc(x.name) + '</div><div class="t2">' + (x.qty !== 1 ? x.qty + ' × ' + money(x.price) + ' = ' : '') + money(x.sum) + '</div></div>' +
+        '<select class="rcsel" data-i="' + i + '">' + expCatOptions(F.itemCats[i], 'как у всех') + '</select></div>';
+    }).join('') + '</div>' +
+    '<label class="check" style="margin-top:12px"><input type="checkbox" id="rc-rem"' + (F.remember ? ' checked' : '') + '>Запомнить категории товаров, выбранные отдельно</label>' : '') +
+    '<div class="section" id="rc-totals" style="padding:10px 12px">' + totalsHtml() + '</div>' +
+    '<div class="actions"><button class="btn ghost" data-act="close">Отмена</button><button class="btn primary" data-act="rc-save">Сохранить</button></div>');
+}
+function itemPattern(name) {
+  var w = String(name).toUpperCase().replace(/[^A-ZА-ЯЁ]+/g, ' ').trim().split(' ').filter(function (x) { return x.length >= 3; });
+  return w[0] || '';
+}
+function saveSplit() {
+  var parts = splitParts();
+  if (parts.some(function (p) { return p.category === '?'; })) return toast('Выберите категорию для всех товаров', true);
+  if (!parts.length) return toast('Выберите категорию', true);
+  var rem = $('#rc-rem'); if (rem) F.remember = rem.checked;
+  var rules = [], seen = {};
+  if (F.remember) (F.receipt.items || []).forEach(function (x, i) {
+    var c = F.itemCats[i], pat = itemPattern(x.name);
+    if (c && c !== F.ruleCats[i] && pat && !seen[pat]) { seen[pat] = 1; rules.push({ pattern: pat, category: c }); }
+  });
+  busy(true);
+  api('attachReceipt', { id: F.receipt.id, target: { kind: F.target.kind, id: F.target.id || '' }, parts: parts, rules: rules, pattern: F.target.pattern || '' })
+    .then(function (res) {
+      closeSheet();
+      toast(res.ops.length > 1 ? 'Чек разнесён по ' + res.ops.length + ' категориям' : 'Чек добавлен');
+      return reload();
+    }).catch(function (e) { busy(false); toast(e, true); });
+}
+
+// ---------- просмотр чека ----------
+function showReceipt(rc) {
+  F = { kind: 'rcpt', receipt: rc, view: true };
+  var ops = S.data.ops.filter(function (o) { return o.receiptId === rc.id; });
+  openSheet(sheetHead('🧾 Чек') + rcSummary(rc) +
+    (rc.items && rc.items.length ? '<div class="rcitems">' + rc.items.map(function (x) {
+      return '<div class="rcitem"><div class="mid"><div class="t1">' + esc(x.name) + '</div><div class="t2">' + (x.qty !== 1 ? x.qty + ' × ' + money(x.price) : '') + '</div></div><b>' + money(x.sum) + '</b></div>';
+    }).join('') + '</div>' : '<div class="empty">Состав чека не получен</div>') +
+    (ops.length ? '<h4 class="rch">Учтено как</h4><div class="section" style="padding:10px 12px">' + ops.map(function (o) {
+      var c = catInfo('expense', o.category);
+      return '<div class="rctot"><span>' + esc(c.icon + ' ' + o.category) + '</span><b>' + money(o.amount) + '</b></div>';
+    }).join('') + '</div>' : '') +
+    '<div class="actions"><button class="btn danger" data-act="rc-del">Отвязать и удалить чек</button><button class="btn ghost" data-act="close">Закрыть</button></div>');
+}
+function openReceiptById(id) {
+  toast('Загружаю чек…');
+  api('getReceipt', { id: id }).then(function (rc) {
+    if (rc.status === 'привязан') return showReceipt(rc);
+    var p = (S.data.receipts || []).find(function (x) { return x.id === id; });
+    F = { kind: 'rcpt', target: null, receipt: rc, candidates: (p && p.candidates) || [] };
+    if (F.candidates.length) renderMatch(); else renderNoPair();
+  }).catch(function (e) { toast(e, true); });
+}
+
+// ---------- «Поделиться» картинкой ----------
+function handleShare() {
+  if (!/[?&]share=1/.test(location.search) || handleShare.done) return;
+  handleShare.done = true;
+  history.replaceState(null, '', location.pathname);
+  if (!('caches' in window)) return;
+  caches.open('budget-share').then(function (c) {
+    return c.match('./shared-file').then(function (r) {
+      if (r) return r.blob().then(function (b) { c.delete('./shared-file'); return decodeQrFile(b); });
+      return c.match('./shared-text').then(function (t) {
+        if (!t) throw 'Не получилось открыть то, чем поделились';
+        return t.text().then(function (s) { c.delete('./shared-text'); return s; });
+      });
+    });
+  }).then(function (txt) { F = { kind: 'rcpt', target: null }; openSheet(sheetHead('Чек по QR') + '<div class="loader" style="height:120px"><div class="spin"></div></div>'); return submitQr(txt); })
+    .catch(function (e) { toast(e, true); });
+}
+
+// ---------- действия ----------
+Object.assign(ACTIONS, {
+  'rc-scan': function () { openScan(null); },
+  'rc-raw': function () { submitQr(val('qr-raw')); },
+  'rc-pick': function (el) { var c = F.candidates[+el.dataset.i]; goSplit({ kind: c.kind, id: c.id }); },
+  'rc-pick-m': function (el) { var c = F.manual[+el.dataset.i]; goSplit({ kind: c.kind, id: c.id }); },
+  'rc-manual': function () { renderManual(); },
+  'rc-back': function () { if (F.candidates && F.candidates.length) renderMatch(); else renderNoPair(); },
+  'rc-new': function () { goSplit({ kind: 'new' }); },
+  'rc-later': function () { closeSheet(); toast('Чек сохранён — он на главной в «Чеки без пары»'); reload(); },
+  'rc-del': function (el) {
+    if (!el.dataset.sure) { el.dataset.sure = '1'; el.textContent = 'Точно удалить чек?'; return; }
+    busy(true);
+    api('deleteReceipt', { id: F.receipt.id }).then(function () { closeSheet(); toast('Чек удалён'); return reload(); })
+      .catch(function (e) { busy(false); toast(e, true); });
+  },
+  'rc-retry': function () {
+    busy(true);
+    api('refetchReceipt', { id: F.receipt.id }).then(function (res) {
+      F.receipt = res.receipt; goSplit(F.target);
+      toast(res.receipt.items && res.receipt.items.length ? 'Состав получен' : (res.receipt.error || 'Пока нет данных'), !(res.receipt.items && res.receipt.items.length));
+    }).catch(function (e) { busy(false); toast(e, true); });
+  },
+  'rc-main': function (el) {
+    F.main = el.dataset.name;
+    document.querySelectorAll('.cchip').forEach(function (b) { b.classList.toggle('on', b === el); });
+    $('#rc-totals').innerHTML = totalsHtml();
+  },
+  'rc-save': function () { saveSplit(); },
+  'rc-open': function (el) { openReceiptById(el.dataset.id); },
+  'rc-view': function () { var id = F.receiptId; closeSheet(); openReceiptById(id); },
+  'rc-op': function () {
+    syncOpForm();
+    var t = F.inboxId ?
+      { kind: 'inbox', id: F.inboxId, title: F.comment, amount: parseAmount(F.amount), category: F.category, pattern: F.remember ? String(F.rulePattern || '').trim() : '' } :
+      { kind: 'op', id: F.id, title: F.comment || F.category, amount: parseAmount(F.amount), category: F.category };
+    openScan(t);
+  },
+  'rc-hint': function (el) {
+    var rc = (S.data.receipts || []).find(function (x) { return x.id === el.dataset.id; });
+    syncOpForm();
+    var t = { kind: 'inbox', id: F.inboxId, category: F.category, pattern: F.remember ? String(F.rulePattern || '').trim() : '' };
+    toast('Загружаю чек…');
+    api('getReceipt', { id: rc.id }).then(function (full) { F = { kind: 'rcpt', receipt: full }; goSplit(t); }).catch(function (e) { toast(e, true); });
+  },
+  'rc-nn': function () {
+    var id = F.id, o = S.data.ops.find(function (x) { return x.id === id; });
+    var v = !(o && o.noReceipt);
+    busy(true);
+    api('setNoReceipt', { id: id, value: v }).then(function () {
+      if (o) o.noReceipt = v;
+      closeSheet(); render(); toast(v ? 'Отмечено: чек не нужен' : 'Снова ждём чек');
+    }).catch(function (e) { busy(false); toast(e, true); });
+  },
+  'fnorc': function () { S.filter.noRcpt = !S.filter.noRcpt; if (S.filter.noRcpt) { S.filter.type = 'expense'; S.filter.cat = ''; } render(); },
+  'irule-del': function (el) {
+    if (!el.dataset.sure) { el.dataset.sure = '1'; el.textContent = 'Удалить?'; el.style.width = 'auto'; el.style.padding = '0 10px'; el.style.borderRadius = '99px'; return; }
+    var id = el.dataset.id; el.disabled = true;
+    api('deleteItemRule', { id: id }).then(function () {
+      S.data.itemRules = (S.data.itemRules || []).filter(function (r) { return r.id !== id; });
+      render(); toast('Правило удалено');
+    }).catch(function (e) { el.disabled = false; toast(e, true); });
+  }
+});
+
+document.addEventListener('change', function (e) {
+  if (e.target.id === 'qr-cam' || e.target.id === 'qr-file') {
+    var file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    busy(true);
+    decodeQrFile(file).then(function (txt) { busy(false); return submitQr(txt); })
+      .catch(function (err) { busy(false); toast(err, true); });
+  }
+  if (e.target.classList && e.target.classList.contains('rcsel') && F && F.kind === 'rcpt') {
+    F.itemCats[+e.target.dataset.i] = e.target.value;
+    $('#rc-totals').innerHTML = totalsHtml();
+  }
+});
 </script>
 </body>
 </html>

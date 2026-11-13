@@ -1075,12 +1075,38 @@ function loadJsQR() {
     document.head.appendChild(s);
   });
 }
+// Картинку открываем двумя способами: createImageBitmap не понимает часть форматов на Android
+function loadImage(file) {
+  var viaImg = function () {
+    return new Promise(function (ok, fail) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () { ok({ src: img, w: img.naturalWidth, h: img.naturalHeight, done: function () { URL.revokeObjectURL(url); } }); };
+      img.onerror = function () { URL.revokeObjectURL(url); fail(); };
+      img.src = url;
+    });
+  };
+  var p = window.createImageBitmap ?
+    createImageBitmap(file).then(function (b) { return { src: b, w: b.width, h: b.height, done: function () {} }; }).catch(viaImg) : viaImg();
+  return p.catch(function () {
+    throw 'Не удалось открыть картинку' + (file.type ? ' (' + file.type + ')' : '') + '. Сделайте обычный скриншот экрана (PNG/JPG) или сфотографируйте QR камерой.';
+  });
+}
 function decodeQrFile(file) {
-  return createImageBitmap(file).then(function (bmp) {
+  if (!file || !file.size) return Promise.reject('Файл пустой — возможно, он ещё не скачан из облака. Откройте его в галерее и попробуйте снова.');
+  return loadImage(file).then(function (im) {
+    // рисуем на холст — его понимают и BarcodeDetector, и jsQR
+    var side = Math.max(im.w, im.h);
+    var canvasAt = function (target) {
+      var k = Math.min(1, target / side), w = Math.max(1, Math.round(im.w * k)), h = Math.max(1, Math.round(im.h * k));
+      var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      var cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h); cx.drawImage(im.src, 0, 0, w, h);
+      return { cv: cv, cx: cx, w: w, h: h };
+    };
+    var first = canvasAt(2400);
     var native = ('BarcodeDetector' in window) ?
       BarcodeDetector.getSupportedFormats().then(function (f) {
         if (f.indexOf('qr_code') < 0) return '';
-        return new BarcodeDetector({ formats: ['qr_code'] }).detect(bmp).then(function (r) {
+        return new BarcodeDetector({ formats: ['qr_code'] }).detect(first.cv).then(function (r) {
           var hit = r.find(function (x) { return /t=\d{8}T/i.test(x.rawValue); }) || r[0];
           return hit ? hit.rawValue : '';
         });
@@ -1088,23 +1114,20 @@ function decodeQrFile(file) {
     return native.then(function (txt) {
       if (txt) return txt;
       return loadJsQR().then(function (jsQR) {
-        var side = Math.max(bmp.width, bmp.height);
-        var sizes = [Math.min(side, 2400), 1400, 900].filter(function (v, i, a) { return v <= side && a.indexOf(v) === i; });
-        if (!sizes.length) sizes = [side];
+        var sizes = [2400, 1400, 900];
         for (var i = 0; i < sizes.length; i++) {
-          var k = sizes[i] / side, w = Math.round(bmp.width * k), h = Math.round(bmp.height * k);
-          var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-          var cx = cv.getContext('2d'); cx.drawImage(bmp, 0, 0, w, h);
-          var res = jsQR(cx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'attemptBoth' });
+          var c = i === 0 ? first : canvasAt(sizes[i]);
+          if (i > 0 && c.w === first.w) continue;
+          var res = jsQR(c.cx.getImageData(0, 0, c.w, c.h).data, c.w, c.h, { inversionAttempts: 'attemptBoth' });
           if (res && res.data) return res.data;
         }
         return '';
       });
-    });
+    }).then(function (txt) { im.done(); return txt; });
   }).then(function (txt) {
-    if (!txt) throw 'QR-код не найден. Сфотографируйте его крупнее и ровнее или обрежьте скриншот.';
+    if (!txt) throw 'QR-код не найден. Сфотографируйте его крупнее и ровнее или обрежьте скриншот до QR-кода.';
     return txt;
-  });
+  }, function (e) { throw typeof e === 'string' ? e : 'Не удалось прочитать картинку: ' + (e && e.message || e); });
 }
 
 // ---------- шаг 1: выбрать фото/скриншот ----------

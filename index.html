@@ -81,6 +81,13 @@ a{color:var(--accent)}
 .lg .pc{color:var(--muted);font-size:12px;width:38px;text-align:right}
 
 /* тренд */
+.lchart{width:100%;height:auto;max-height:260px;display:block;overflow:visible}
+.lchart .grid{stroke:var(--border);stroke-width:1}
+.lchart .ylab{fill:var(--muted);font-size:10px;text-anchor:end}
+.lchart .xlab{fill:var(--muted);font-size:11px;text-anchor:middle}
+.lchart .xlab.cur{fill:var(--text);font-weight:700}
+.fcnote{font-size:13px;margin-top:10px;line-height:1.5}
+.fcwarn{font-size:13px;color:var(--yellow);margin-top:6px}
 .trend{display:flex;align-items:flex-end;gap:6px;height:150px;padding-top:6px}
 .tcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;cursor:pointer}
 .tbars{flex:1;width:100%;display:flex;align-items:flex-end;justify-content:center;gap:2px}
@@ -529,17 +536,19 @@ function viewHome() {
       (paid ? '' : '<button class="paybtn" data-act="pay-rec" data-id="' + r.id + '">Внести</button>') + '</div>';
   }).join('') : '<div class="empty">Нет регулярных платежей.<br><button class="linkbtn" data-act="view" data-v="rec">Добавить →</button></div>';
 
-  // тренд за 6 месяцев
+  // динамика за 6 месяцев и прогноз на 6 месяцев вперёд
   var months = [];
   for (var k = 5; k >= 0; k--) months.push(shiftYm(ym, -k));
-  var tdata = months.map(function (m) { var o = opsOf(m); return [m, total(o, 'income'), total(o, 'expense'), total(o, 'saving')]; });
-  var max = Math.max.apply(null, tdata.map(function (d) { return Math.max(d[1], d[2], d[3]); }).concat([1]));
-  var trendHtml = '<div class="trend">' + tdata.map(function (d) {
-    var h = function (v) { return (v / max * 100).toFixed(1) + '%'; };
-    return '<div class="tcol' + (d[0] === ym ? ' cur' : '') + '" data-act="set-month" data-ym="' + d[0] + '" title="Доходы ' + money(d[1]) + ', расходы ' + money(d[2]) + ', сбережения ' + money(d[3]) + '">' +
-      '<div class="tbars"><i style="height:' + h(d[1]) + ';background:var(--green)"></i><i style="height:' + h(d[2]) + ';background:var(--red)"></i><i style="height:' + h(d[3]) + ';background:var(--purple)"></i></div>' +
-      '<span>' + MONTHS_SHORT[Number(d[0].slice(5)) - 1] + '</span></div>';
-  }).join('') + '</div><div class="tlegend"><span><i style="background:var(--green)"></i>Доходы</span><span><i style="background:var(--red)"></i>Расходы</span><span><i style="background:var(--purple)"></i>Сбережения</span></div>';
+  var hist = months.map(function (m) { var o = opsOf(m); return { m: m, inc: total(o, 'income'), exp: total(o, 'expense') }; });
+  var trendHtml = lineChart(months, [
+    { name: 'Доходы', color: 'var(--green)', values: hist.map(function (d) { return d.inc; }) },
+    { name: 'Расходы', color: 'var(--red)', values: hist.map(function (d) { return d.exp; }) }
+  ], { current: ym, click: true });
+  var fc = forecast();
+  var fcHtml = lineChart(fc.months, [
+    { name: 'Доходы', color: 'var(--green)', values: fc.inc, dashed: true },
+    { name: 'Расходы', color: 'var(--red)', values: fc.exp, dashed: true }
+  ], { current: curYm }) + fc.note;
 
   html += '<div class="grid2">' +
     '<div class="section"><h3>Лимиты по категориям</h3>' + limHtml + '</div>' +
@@ -547,8 +556,93 @@ function viewHome() {
     '</div><div class="grid2">' +
     '<div class="section"><h3>Регулярные платежи' + (unpaid ? ' <small>осталось внести ' + money(unpaid) + '</small>' : '') + '</h3>' + recHtml + '</div>' +
     '<div class="section"><h3>Динамика за полгода</h3>' + trendHtml + '</div>' +
-    '</div>';
+    '</div>' +
+    '<div class="section"><h3>Прогноз на полгода <small>план + средние траты</small></h3>' + fcHtml + '</div>';
   return html;
+}
+
+// --- линейный график (SVG) ---
+function shortMoney(v) {
+  var a = Math.abs(v);
+  if (a >= 1e6) return (Math.round(v / 1e5) / 10).toString().replace('.', ',') + ' млн';
+  if (a >= 1e3) return Math.round(v / 1e3) + ' тыс';
+  return String(Math.round(v));
+}
+function lineChart(months, series, opt) {
+  opt = opt || {};
+  var W = 360, H = 190, L = 40, R = 16, T = 10, B = 22, n = months.length;
+  var max = Math.max.apply(null, series.reduce(function (a, s) { return a.concat(s.values); }, [1]));
+  var step = Math.pow(10, Math.floor(Math.log10(max))), nice = Math.ceil(max / step) * step;
+  if (nice / step > 6) step *= 2; else if (nice / step <= 2) step /= 2;
+  nice = Math.ceil(max / step) * step;
+  var x = function (i) { return L + (n === 1 ? (W - L - R) / 2 : i * (W - L - R) / (n - 1)); };
+  var y = function (v) { return T + (H - T - B) * (1 - v / nice); };
+  var svg = '<svg class="lchart" viewBox="0 0 ' + W + ' ' + H + '">';
+  for (var g = 0; g <= nice + 0.001; g += step) {
+    svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(g) + '" y2="' + y(g) + '" class="grid"/><text x="' + (L - 6) + '" y="' + (y(g) + 4) + '" class="ylab">' + shortMoney(g) + '</text>';
+  }
+  months.forEach(function (m, i) {
+    svg += '<text x="' + x(i) + '" y="' + (H - 8) + '" class="xlab' + (m === opt.current ? ' cur' : '') + '">' + MONTHS_SHORT[Number(m.slice(5)) - 1] + '</text>';
+  });
+  series.forEach(function (s) {
+    var pts = s.values.map(function (v, i) { return x(i) + ',' + y(v); }).join(' ');
+    svg += '<polyline points="' + pts + '" fill="none" stroke="' + s.color + '" stroke-width="2" stroke-linejoin="round"' + (s.dashed ? ' stroke-dasharray="7 5"' : '') + '/>';
+    s.values.forEach(function (v, i) {
+      svg += '<circle cx="' + x(i) + '" cy="' + y(v) + '" r="3.2" fill="var(--panel)" stroke="' + s.color + '" stroke-width="1.8"><title>' + s.name + ', ' + ymTitle(months[i]) + ': ' + money(v) + '</title></circle>';
+    });
+  });
+  if (opt.click) months.forEach(function (m, i) {
+    var w = (W - L - R) / Math.max(1, n - 1);
+    svg += '<rect x="' + (x(i) - w / 2) + '" y="0" width="' + w + '" height="' + H + '" fill="transparent" data-act="set-month" data-ym="' + m + '" style="cursor:pointer"><title>' +
+      ymTitle(m) + ': ' + series.map(function (s) { return s.name.toLowerCase() + ' ' + money(s.values[i]); }).join(', ') + '</title></rect>';
+  });
+  svg += '</svg>';
+  return svg + '<div class="tlegend">' + series.map(function (s) {
+    return '<span><i style="background:' + s.color + '"></i>' + s.name + '</span>';
+  }).join('') + '</div>';
+}
+// прогноз: регулярные платежи + средние нерегулярные доходы/расходы за последние 3 полных месяца
+function forecast() {
+  var cur = ymOf(todayIso()), months = [], inc = [], exp = [], sav = [];
+  // категории, у которых есть регулярный платёж, в «средние траты» не берём — их покрывает план
+  var planned = {};
+  S.data.rec.forEach(function (r) { if (r.active) planned[r.type + '|' + r.category] = 1; });
+  var isVar = function (o, type) { return o.type === type && !o.recurringId && !planned[type + '|' + o.category]; };
+  var avg = function (type) {
+    var s = 0;
+    for (var k = 1; k <= 3; k++) opsOf(shiftYm(cur, -k)).forEach(function (o) { if (isVar(o, type)) s += o.amount; });
+    return s / 3;
+  };
+  var varInc = avg('income'), varExp = avg('expense');
+  for (var k = 0; k < 6; k++) {
+    var m = shiftYm(cur, k), rec = recFor(m);
+    var pl = { income: 0, expense: 0, saving: 0 };
+    if (k === 0) {
+      var ops = opsOf(m);
+      // платёж уже внесён, если есть операция по нему или в той же категории (например, зарплата пришла из SMS)
+      rec.forEach(function (r) {
+        var paid = ops.some(function (o) { return o.recurringId === r.id || (o.type === r.type && o.category === r.category && !o.recurringId); });
+        if (!paid) pl[r.type] += r.amount;
+      });
+      var actVarExp = ops.reduce(function (a, o) { return a + (isVar(o, 'expense') ? o.amount : 0); }, 0);
+      var actVarInc = ops.reduce(function (a, o) { return a + (isVar(o, 'income') ? o.amount : 0); }, 0);
+      inc.push(total(ops, 'income') + pl.income + Math.max(0, varInc - actVarInc));
+      exp.push(total(ops, 'expense') + pl.expense + Math.max(0, varExp - actVarExp));
+      sav.push(total(ops, 'saving') + pl.saving);
+    } else {
+      rec.forEach(function (r) { pl[r.type] += r.amount; });
+      inc.push(pl.income + varInc); exp.push(pl.expense + varExp); sav.push(pl.saving);
+    }
+    months.push(m);
+  }
+  var free = inc.reduce(function (a, v, i) { return a + v - exp[i] - sav[i]; }, 0);
+  var savSum = sav.reduce(function (a, v) { return a + v; }, 0);
+  var note = '<div class="fcnote">За 6 месяцев: доходы <b class="pos">' + money(inc.reduce(function (a, v) { return a + v; }, 0)) + '</b>, расходы <b class="neg">' +
+    money(exp.reduce(function (a, v) { return a + v; }, 0)) + '</b>' + (savSum ? ', отложить <b class="sav">' + money(savSum) + '</b>' : '') +
+    '. Свободный остаток: <b class="' + (free < 0 ? 'neg' : 'pos') + '">' + money(free) + '</b> (≈ ' + money(free / 6) + ' в месяц).' +
+    '<br><span class="muted">Нерегулярные траты взяты как среднее за 3 прошлых месяца: ' + money(varExp) + ' в месяц' + (varInc ? ', нерегулярные доходы — ' + money(varInc) : '') + '.</span></div>';
+  if (free < 0) note += '<div class="fcwarn">⚠️ По прогнозу расходы и сбережения превышают доходы — стоит пересмотреть лимиты или регулярные платежи.</div>';
+  return { months: months, inc: inc, exp: exp, note: note };
 }
 
 function card(lbl, val, cls, sub) {

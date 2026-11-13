@@ -191,6 +191,11 @@ body.auth .sidebar, body.auth .bottomnav{display:none}
 .offline{background:color-mix(in srgb,var(--yellow) 18%,transparent);color:var(--yellow);font-size:13px;border-radius:10px;padding:8px 12px;margin-bottom:12px;text-align:center}
 
 .addrow{display:flex;gap:8px;margin:0 0 12px}
+.foldh{cursor:pointer;user-select:none}
+.foldh>span:first-child{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.foldh .chev{color:var(--muted);font-size:14px}
+.fold.closed .foldb{display:none}
+.fold.closed .foldh{margin-bottom:0}
 .seg4 button{font-size:13px;padding-left:4px;padding-right:4px}
 .money h3 .btn{font-weight:500}
 .mgroup{margin-bottom:8px}
@@ -551,10 +556,10 @@ function viewHome() {
   ], { current: curYm }) + fc.note;
 
   html += '<div class="grid2">' +
-    '<div class="section"><h3>Лимиты по категориям</h3>' + limHtml + '</div>' +
+    foldSec('limits', 'Лимиты по категориям', limHtml) +
     '<div class="section"><h3>Структура расходов</h3>' + structHtml + '</div>' +
     '</div><div class="grid2">' +
-    '<div class="section"><h3>Регулярные платежи' + (unpaid ? ' <small>осталось внести ' + money(unpaid) + '</small>' : '') + '</h3>' + recHtml + '</div>' +
+    foldSec('rec', 'Регулярные платежи' + (unpaid ? ' <small>осталось внести ' + money(unpaid) + '</small>' : ''), recHtml) +
     '<div class="section"><h3>Динамика за полгода</h3>' + trendHtml + '</div>' +
     '</div>' +
     '<div class="section"><h3>Прогноз на полгода <small>по регулярным платежам</small></h3>' + fcHtml + '</div>';
@@ -618,6 +623,18 @@ function forecast() {
   if (free < 0) note += '<div class="fcwarn">⚠️ Запланированные расходы и сбережения больше запланированных доходов.</div>';
   return { months: months, inc: inc, exp: exp, note: note };
 }
+
+// сворачиваемые блоки на «Обзоре»: состояние запоминается на устройстве
+var FOLD = (function () { try { return JSON.parse(lsGet('budget_fold') || '{}'); } catch (e) { return {}; } })();
+function foldSec(key, title, body, cls) {
+  var closed = !!FOLD[key];
+  return '<div class="section fold' + (closed ? ' closed' : '') + (cls ? ' ' + cls : '') + '"><h3 class="foldh" data-act="fold" data-k="' + key + '"><span>' + title + '</span><span class="chev">' + (closed ? '▸' : '▾') + '</span></h3>' +
+    '<div class="foldb">' + body + '</div></div>';
+}
+ACTIONS_EXTRA = { 'fold': function (el) {
+  var k = el.dataset.k; FOLD[k] = !FOLD[k]; lsSet('budget_fold', JSON.stringify(FOLD));
+  var sec = el.parentNode; sec.classList.toggle('closed', !!FOLD[k]); el.querySelector('.chev').textContent = FOLD[k] ? '▸' : '▾';
+} };
 
 function card(lbl, val, cls, sub) {
   return '<div class="card"><div class="lbl">' + lbl + '</div><div class="val ' + (cls || '') + '">' + val + '</div><div class="sub">' + (sub || '&nbsp;') + '</div></div>';
@@ -977,6 +994,7 @@ function deleteRec(btn) {
 }
 
 // ---------- события ----------
+var ACTIONS_EXTRA;
 var ACTIONS = {
   'view': function (el) { S.view = el.dataset.v; render(true); },
   'month': function (el) { S.ym = shiftYm(S.ym, Number(el.dataset.k)); render(); },
@@ -1064,6 +1082,7 @@ var ACTIONS = {
   'rec-del': function (el) { deleteRec(el); }
 };
 
+Object.assign(ACTIONS, ACTIONS_EXTRA || {});
 document.addEventListener('click', function (e) {
   if (e.target.id === 'overlay') { closeSheet(); return; }
   var el = e.target.closest('[data-act]');
@@ -1824,7 +1843,7 @@ function moneySection() {
   var accs = accList();
   if (!accs.length) return '';
   var b = balances(), all = 0;
-  var html = '<div class="section money"><h3>💰 Деньги <button class="btn ghost small" data-act="view" data-v="acc">Счета ›</button></h3>';
+  var html = '';
   ACC_GROUPS.forEach(function (g) {
     var list = accs.filter(function (a) { return g.types.indexOf(a.type) >= 0; });
     if (!list.length) return;
@@ -1834,7 +1853,8 @@ function moneySection() {
       return '<button class="macc" data-act="acc-open" data-id="' + a.id + '"><span>' + esc(a.icon) + ' ' + esc(a.name) + (b[a.id].bank ? ' <i class="sync" title="по SMS банка">✓</i>' : '') + '</span><span class="' + (b[a.id].shown < 0 ? 'neg' : '') + '">' + money(b[a.id].shown) + '</span></button>';
     }).join('') + '</div>';
   });
-  return html + '<div class="mhead mtotal"><span>Всего</span><b>' + money(all) + '</b></div></div>';
+  return foldSec('money', '💰 Деньги <small>' + money(all) + '</small>', html + '<div class="mhead mtotal"><span>Всего</span><b>' + money(all) + '</b></div>' +
+    '<div class="actions" style="margin-top:8px"><button class="btn ghost small" data-act="view" data-v="acc">Счета ›</button></div>', 'money');
 }
 
 // --- вкладка «Счета» ---

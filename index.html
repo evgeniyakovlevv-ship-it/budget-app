@@ -183,8 +183,27 @@ body.auth .sidebar, body.auth .bottomnav{display:none}
 .login .err{color:var(--red);font-size:13px;min-height:18px;margin-top:10px}
 .offline{background:color-mix(in srgb,var(--yellow) 18%,transparent);color:var(--yellow);font-size:13px;border-radius:10px;padding:8px 12px;margin-bottom:12px;text-align:center}
 
-.qrbar{display:flex;width:100%;align-items:center;justify-content:center;margin:0 0 12px}
-@media (min-width:900px){.qrbar{display:none}}
+.addrow{display:flex;gap:8px;margin:0 0 12px}
+.addrow .btn{min-height:42px;padding:9px 12px}
+.menubtn{width:38px;height:38px;border-radius:10px;font-size:20px;line-height:1;margin-right:6px;vertical-align:middle;background:var(--panel);border:1px solid var(--border)}
+.title{display:flex;align-items:center}
+.bottomnav,.fab{display:none!important}
+.navback{display:none}
+.bar{height:4px;background:var(--panel2);border-radius:4px;margin-top:5px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--green);border-radius:4px}
+.hbars{display:flex;align-items:flex-end;gap:4px;height:110px;padding:6px 2px 0}
+.hb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:3px;min-width:0}
+.hb i{display:block;width:100%;max-width:22px;background:var(--accent);border-radius:4px 4px 0 0}
+.hb span{font-size:10px;color:var(--muted)}
+@media (max-width:899px){
+  .sidebar{display:flex;flex-direction:column;gap:3px;position:fixed;top:0;left:0;bottom:0;width:270px;max-width:82vw;background:var(--panel);border-right:1px solid var(--border);padding:22px 12px calc(22px + env(safe-area-inset-bottom));z-index:60;transform:translateX(-105%);transition:transform .2s ease;overflow-y:auto}
+  .sidebar .btn{flex:none;margin:6px 0 14px}
+  body.navopen .sidebar{transform:none;box-shadow:8px 0 30px rgba(0,0,0,.35)}
+  body.navopen .navback{display:block;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:55}
+  .main{padding-bottom:40px}
+  .toast{bottom:30px}
+}
+@media (min-width:900px){.addrow,.menubtn{display:none}}
 .filebtn{display:flex;align-items:center;justify-content:center;margin:0;color:inherit;font-size:15px;cursor:pointer}
 .btn.primary.filebtn{color:#fff}
 textarea{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;width:100%;outline:none;margin:8px 0;font-size:13px;resize:vertical}
@@ -234,6 +253,7 @@ textarea{font:inherit;color:var(--text);background:var(--panel2);border:1px soli
   <main class="main" id="main"><div class="loader"><div class="spin"></div>Загрузка…</div></main>
 </div>
 <nav class="bottomnav" id="bottomnav"></nav>
+<div class="navback" data-act="navclose"></div>
 <div class="overlay" id="overlay"><div class="sheet" id="sheet"></div></div>
 <div class="toast" id="toast"></div>
 
@@ -252,6 +272,7 @@ var PALETTE = ['#3fb950','#58a6ff','#a371f7','#f778ba','#f85149','#ffa657','#e3b
 var NAV = [
   { id: 'home', ic: '📊', t: 'Обзор' },
   { id: 'ops',  ic: '📋', t: 'Операции' },
+  { id: 'buy',  ic: '🧺', t: 'Покупки' },
   { id: 'rec',  ic: '🔁', t: 'Регулярные' },
   { id: 'cats', ic: '🏷️', t: 'Категории' }
 ];
@@ -286,6 +307,7 @@ function ruleKey(it) {
   return (k.length >= 3 ? k : m).slice(0, 40);
 }
 function reload() {
+  S.buyCache = {};
   return call('getData').then(function (data) { S.data = data; render(); }).catch(function (e) { toast(e, true); });
 }
 function money(n, sign) {
@@ -391,6 +413,9 @@ function render(resetScroll) {
   else if (S.view === 'ops') { main.innerHTML = viewOps(); renderOpsList(); }
   else if (S.view === 'rec') main.innerHTML = viewRec();
   else if (S.view === 'cats') main.innerHTML = viewCats();
+  else if (S.view === 'buy') main.innerHTML = viewBuy();
+  var tt = main.querySelector('.topbar .title');
+  if (tt) tt.insertAdjacentHTML('afterbegin', '<button class="menubtn" data-act="menu" aria-label="Меню">☰</button>');
   if (S.offline) main.insertAdjacentHTML('afterbegin', '<div class="offline">Нет связи — показаны сохранённые данные. Изменения пока недоступны.</div>');
   if (resetScroll) window.scrollTo(0, 0);
 }
@@ -402,7 +427,7 @@ function renderNav() {
   var b = function (n) {
     return '<button class="navbtn' + (S.view === n.id ? ' on' : '') + '" data-act="view" data-v="' + n.id + '"><span class="ic">' + n.ic + '</span>' + n.t + '</button>';
   };
-  $('#bottomnav').innerHTML = b(NAV[0]) + b(NAV[1]) + '<button class="fab" data-act="add" aria-label="Добавить">+</button>' + b(NAV[2]) + b(NAV[3]);
+  $('#bottomnav').innerHTML = '';
 }
 
 function monthSwitcher() {
@@ -416,7 +441,7 @@ function viewHome() {
   var pInc = recTotal(ym, 'income'), pExp = recTotal(ym, 'expense'), pSav = recTotal(ym, 'saving');
   var left = inc - exp - sav;
 
-  var html = '<div class="topbar"><div class="title">Обзор</div>' + monthSwitcher() + '</div>' + '<button class="btn ghost qrbar" data-act="rc-scan">📷 Добавить чек по QR</button>';
+  var html = '<div class="topbar"><div class="title">Обзор</div>' + monthSwitcher() + '</div>' + '<div class="addrow"><button class="btn primary" data-act="add">+ Операция</button><button class="btn ghost" data-act="rc-scan">📷 Чек по QR</button></div>';
   html += '<div class="cards">' +
     card('Доходы', money(inc), 'pos', pInc ? 'план ' + money(pInc) : '') +
     card('Расходы', money(exp), 'neg', pExp ? 'обязательные ' + money(pExp) : '') +
@@ -532,7 +557,7 @@ function viewOps() {
     var v = names[k], label = (f.type === 'all' ? TYPES[v[0]].one + ': ' : '') + v[1];
     return '<option value="' + esc(k) + '"' + (f.cat === k ? ' selected' : '') + '>' + esc(label) + '</option>';
   }).join('');
-  return '<div class="topbar"><div class="title">Операции</div>' + monthSwitcher() + '</div>' + '<button class="btn ghost qrbar" data-act="rc-scan">📷 Добавить чек по QR</button>' +
+  return '<div class="topbar"><div class="title">Операции</div>' + monthSwitcher() + '</div>' + '<div class="addrow"><button class="btn primary" data-act="add">+ Операция</button><button class="btn ghost" data-act="rc-scan">📷 Чек по QR</button></div>' +
     '<div class="chips">' + [['all', 'Все']].concat(TYPE_KEYS.map(function (t) { return [t, TYPES[t].many]; })).map(function (c) {
       return '<button class="chip' + (f.type === c[0] && !f.noRcpt ? ' on' : '') + '" data-act="ftype" data-t="' + c[0] + '">' + c[1] + '</button>';
     }).join('') + '<button class="chip' + (f.noRcpt ? ' on' : '') + '" data-act="fnorc">📷 Без чека ' + opsOf(S.ym).filter(needsReceipt).length + '</button></div>' +
@@ -622,6 +647,7 @@ function viewCats() {
       return '<div class="rule"><div class="mid"><div class="t1">' + esc(r.pattern) + '</div><div class="t2">' + what + '</div></div>' +
         '<button class="x" data-act="rule-del" data-id="' + r.id + '" aria-label="Удалить">✕</button></div>';
     }).join('') : '<div class="empty">Правил нет</div>') + '</details>';
+  html += groupsSection();
   var irules = S.data.itemRules || [];
   html += '<details class="section rules"' + (S.irulesOpen ? ' open' : '') + ' data-k="irulesOpen"><summary>Правила для товаров из чеков <span class="muted small">' + irules.length + ' ›</span></summary>' +
     '<p class="muted small" style="margin-bottom:8px">Если название товара в чеке содержит шаблон — товар сразу попадёт в категорию. Создаются галочкой «Запомнить» при разборе чека.</p>' +
@@ -1267,7 +1293,8 @@ function saveSplit() {
     if (c && c !== F.ruleCats[i] && pat && !seen[pat]) { seen[pat] = 1; rules.push({ pattern: pat, category: c }); }
   });
   busy(true);
-  api('attachReceipt', { id: F.receipt.id, target: { kind: F.target.kind, id: F.target.id || '' }, parts: parts, rules: rules, pattern: F.target.pattern || '' })
+  api('attachReceipt', { id: F.receipt.id, target: { kind: F.target.kind, id: F.target.id || '' }, parts: parts, rules: rules, pattern: F.target.pattern || '',
+    itemCats: (F.receipt.items || []).map(function (x, i) { return F.itemCats[i] || F.main; }) })
     .then(function (res) {
       closeSheet();
       toast(res.ops.length > 1 ? 'Чек разнесён по ' + res.ops.length + ' категориям' : 'Чек добавлен');
@@ -1395,6 +1422,226 @@ document.addEventListener('change', function (e) {
     F.itemCats[+e.target.dataset.i] = e.target.value;
     $('#rc-totals').innerHTML = totalsHtml();
   }
+});
+</script>
+<script>
+// ======================= Покупки (товары из чеков) =======================
+S.buy = { mode: 'month', year: Number(S.ym.slice(0, 4)) };
+S.buyCache = {};
+
+function buyRange() {
+  if (S.buy.mode === 'year') return { key: 'y' + S.buy.year, from: S.buy.year + '-01', to: S.buy.year + '-12', title: S.buy.year + ' год' };
+  return { key: 'm' + S.ym, from: S.ym, to: S.ym, title: ymTitle(S.ym) };
+}
+function fmtQty(v, unit) {
+  var n = unit === 'шт' ? Math.round(v * 10) / 10 : Math.round(v * 100) / 100;
+  return String(n).replace('.', ',') + ' ' + unit;
+}
+function aggGroups(rows) {
+  var by = {};
+  rows.forEach(function (r) {
+    var g = r[4] || '', a = by[g] || (by[g] = { name: g, sum: 0, cnt: 0, units: {}, rows: [] });
+    a.sum += r[7]; a.cnt++; a.rows.push(r);
+    a.units[r[9]] = a.units[r[9]] || { amount: 0, sum: 0 };
+    a.units[r[9]].amount += r[8]; a.units[r[9]].sum += r[7];
+  });
+  return Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return b.sum - a.sum; });
+}
+// главная единица группы: та, на которую пришлась большая часть денег
+function mainUnit(a) {
+  var best = null;
+  Object.keys(a.units).forEach(function (u) { if (!best || a.units[u].sum > a.units[best].sum) best = u; });
+  return best ? { unit: best, amount: a.units[best].amount, price: a.units[best].amount ? a.units[best].sum / a.units[best].amount : 0 } : null;
+}
+function loadBuy(force) {
+  var rg = buyRange();
+  if (!force && S.buyCache[rg.key]) return Promise.resolve(S.buyCache[rg.key]);
+  return api('getPurchases', { from: rg.from, to: rg.to }).then(function (d) {
+    S.buyCache[rg.key] = d;
+    if (d.groups) S.data.productGroups = d.groups;
+    return d;
+  });
+}
+function buySwitcher() {
+  if (S.buy.mode === 'year') {
+    return '<div class="month"><button data-act="buy-year" data-k="-1">‹</button><span>' + S.buy.year + '</span><button data-act="buy-year" data-k="1">›</button></div>';
+  }
+  return monthSwitcher();
+}
+function viewBuy() {
+  var rg = buyRange(), d = S.buyCache[rg.key];
+  var html = '<div class="topbar"><div class="title">Покупки</div>' + buySwitcher() + '</div>' +
+    '<div class="addrow"><button class="btn ghost" data-act="rc-scan">📷 Добавить чек по QR</button></div>' +
+    '<div class="chips"><button class="chip' + (S.buy.mode === 'month' ? ' on' : '') + '" data-act="buy-mode" data-m="month">Месяц</button>' +
+    '<button class="chip' + (S.buy.mode === 'year' ? ' on' : '') + '" data-act="buy-mode" data-m="year">Год</button></div>';
+  if (!d) {
+    loadBuy().then(function () { if (S.view === 'buy') render(); }).catch(function (e) { toast(e, true); });
+    return html + '<div class="loader" style="height:30vh"><div class="spin"></div>Загружаю покупки…</div>';
+  }
+  if (!d.rows.length) {
+    return html + '<div class="section"><div class="empty">За ' + (S.buy.mode === 'year' ? S.buy.year + ' год' : 'этот месяц') +
+      ' покупок из чеков нет.<br>Добавьте чек по QR — товары появятся здесь.</div></div>';
+  }
+  var groups = aggGroups(d.rows), total = d.rows.reduce(function (s, r) { return s + r[7]; }, 0);
+  var none = groups.find(function (g) { return !g.name; });
+  html += '<div class="summary"><span><b>' + d.rows.length + '</b> товаров</span><span>на <b>' + money(total) + '</b></span><span><b>' + groups.filter(function (g) { return g.name; }).length + '</b> групп</span></div>';
+  if (none) {
+    html += '<div class="section inbox"><h3>❓ Без группы <small>' + none.rows.length + ' — нажмите, чтобы определить</small></h3>' +
+      none.rows.slice().sort(function (a, b) { return b[7] - a[7]; }).map(buyItemHtml).join('') + '</div>';
+  }
+  html += '<div class="section">' + groups.filter(function (g) { return g.name; }).map(function (g) {
+    var mu = mainUnit(g), sub = g.cnt + ' ' + plural(g.cnt, 'покупка', 'покупки', 'покупок');
+    if (mu && mu.amount) sub += ' · ' + fmtQty(mu.amount, mu.unit) + (mu.unit !== 'шт' || mu.amount !== g.cnt ? ' · ' + money(mu.price) + '/' + mu.unit : '');
+    var share = Math.round(g.sum / total * 100);
+    return '<button class="item" data-act="buy-group" data-g="' + esc(g.name) + '"><div class="ico" style="--c:#3fb950">🧺</div>' +
+      '<div class="mid"><div class="t1">' + esc(g.name) + '</div><div class="t2">' + sub + '</div>' +
+      '<div class="bar"><i style="width:' + Math.max(2, share) + '%"></i></div></div>' +
+      '<div class="amt">' + money(g.sum) + '</div></button>';
+  }).join('') + '</div>';
+  return html;
+}
+function plural(n, a, b, c) {
+  var m10 = n % 10, m100 = n % 100;
+  return m10 === 1 && m100 !== 11 ? a : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? b : c);
+}
+function buyItemHtml(r) {
+  return '<button class="item" data-act="buy-item" data-id="' + r[0] + '"><div class="mid"><div class="t1">' + esc(r[3]) + '</div>' +
+    '<div class="t2">' + dayShort(r[1]) + ' · ' + esc(r[2] || '') + (r[8] ? ' · ' + fmtQty(r[8], r[9]) : '') + '</div></div>' +
+    '<div class="amt">' + money(r[7]) + '</div></button>';
+}
+function findBuyRow(id) {
+  var rg = buyRange(), d = S.buyCache[rg.key];
+  return d && d.rows.find(function (r) { return r[0] === id; });
+}
+
+// --- группа: история цены и список покупок ---
+function openBuyGroup(name) {
+  var rg = buyRange(), d = S.buyCache[rg.key];
+  var g = aggGroups(d.rows.filter(function (r) { return r[4] === name; }))[0];
+  var pg = (S.data.productGroups || []).find(function (x) { return x.name === name; });
+  F = { kind: 'buyg', name: name };
+  var mu = mainUnit(g);
+  openSheet(sheetHead('🧺 ' + esc(name)) +
+    '<div class="rcsum"><div><b>' + money(g.sum) + '</b><div class="muted small">' + rg.title + ' · ' + g.cnt + ' ' + plural(g.cnt, 'покупка', 'покупки', 'покупок') + '</div></div>' +
+    (mu && mu.amount ? '<div style="text-align:right"><b>' + money(mu.price) + '/' + mu.unit + '</b><div class="muted small">' + fmtQty(mu.amount, mu.unit) + '</div></div>' : '') + '</div>' +
+    '<h4 class="rch">Цена за ' + (mu ? mu.unit : 'ед.') + ' по месяцам</h4><div id="buy-hist" class="hist"><div class="muted small">Загружаю…</div></div>' +
+    '<h4 class="rch">Покупки</h4><div class="section" style="padding:6px">' + g.rows.slice().sort(function (a, b) { return b[1].localeCompare(a[1]); }).map(buyItemHtml).join('') + '</div>' +
+    (pg ? '<p class="muted small" style="margin:4px 2px 10px">Ключевые слова: ' + esc(pg.keywords || '—') + '</p>' +
+      '<div class="actions"><button class="btn ghost" data-act="grp-edit" data-id="' + pg.id + '">Изменить группу</button></div>' : ''));
+  var to = S.buy.mode === 'year' ? S.buy.year + '-12' : S.ym, from = shiftYm(to, -11);
+  api('getPurchases', { from: from, to: to, group: name }).then(function (h) {
+    if (!F || F.kind !== 'buyg' || F.name !== name) return;
+    var unit = mu ? mu.unit : 'шт', months = [], by = {};
+    for (var m = from; m <= to; m = shiftYm(m, 1)) months.push(m);
+    h.rows.forEach(function (r) {
+      if (r[9] !== unit) return;
+      var k = r[1].slice(0, 7), x = by[k] || (by[k] = { sum: 0, amount: 0 });
+      x.sum += r[7]; x.amount += r[8];
+    });
+    var vals = months.map(function (m) { var x = by[m]; return x && x.amount ? x.sum / x.amount : 0; });
+    var max = Math.max.apply(null, vals.concat([1])), known = vals.filter(Boolean);
+    var el = $('#buy-hist');
+    if (!el) return;
+    if (known.length < 2) { el.innerHTML = '<div class="muted small">Пока мало данных — история появится, когда покупки будут хотя бы в двух месяцах.</div>'; return; }
+    var first = known[0], last = known[known.length - 1], ch = Math.round((last / first - 1) * 100);
+    el.innerHTML = '<div class="hbars">' + months.map(function (m, i) {
+      return '<div class="hb" title="' + ymShort(m) + ': ' + (vals[i] ? money(vals[i]) : '—') + '"><i style="height:' + (vals[i] ? Math.max(4, vals[i] / max * 100) : 0) + '%"></i><span>' + MONTHS_SHORT[Number(m.slice(5)) - 1] + '</span></div>';
+    }).join('') + '</div><div class="small" style="margin-top:6px">С первого месяца цена ' +
+      (ch === 0 ? 'не изменилась' : (ch > 0 ? '<span class="neg">выросла на ' + ch + '%</span>' : '<span class="pos">снизилась на ' + (-ch) + '%</span>')) +
+      ': ' + money(first) + ' → ' + money(last) + ' за ' + unit + '</div>';
+  }).catch(function () { var el = $('#buy-hist'); if (el) el.innerHTML = '<div class="muted small">Не удалось загрузить историю</div>'; });
+}
+
+// --- назначить группу товару ---
+function openBuyItem(id) {
+  var r = findBuyRow(id);
+  if (!r) return;
+  var groups = (S.data.productGroups || []).slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
+  F = { kind: 'buyi', id: id, name: r[3] };
+  openSheet(sheetHead('Группа товара') +
+    '<div class="rcsum"><div><b>' + esc(r[3]) + '</b><div class="muted small">' + dayShort(r[1]) + ' · ' + esc(r[2]) + '</div></div><b>' + money(r[7]) + '</b></div>' +
+    '<label>Группа<select id="bi-group"><option value="">— без группы —</option>' + groups.map(function (g) {
+      return '<option' + (g.name === r[4] ? ' selected' : '') + '>' + esc(g.name) + '</option>';
+    }).join('') + '<option value="__new">+ Новая группа…</option></select></label>' +
+    '<label id="bi-new-wrap" style="display:none">Название новой группы<input id="bi-new" maxlength="60" placeholder="Например: Курица"></label>' +
+    '<label class="check"><input type="checkbox" id="bi-all" checked>Запомнить: все товары со словом</label>' +
+    '<input id="bi-kw" class="patrow" maxlength="60" value="' + esc(itemPattern(r[3])) + '">' +
+    '<p class="muted small" style="margin:-6px 2px 12px">Слово ищется в начале слов названия: «БЕДР» найдёт «бедро», «бедрышки». Если товар подходит под несколько групп, побеждает самое длинное слово.</p>' +
+    '<div class="actions"><button class="btn ghost" data-act="close">Отмена</button><button class="btn primary" data-act="bi-save">Сохранить</button></div>');
+}
+function saveBuyItem() {
+  var g = val('bi-group');
+  if (g === '__new') g = val('bi-new').trim();
+  if (val('bi-group') === '__new' && !g) return toast('Введите название группы', true);
+  var kw = $('#bi-all').checked && g ? val('bi-kw').trim() : '';
+  busy(true);
+  api('setPurchaseGroup', { id: F.id, group: g, keyword: kw }).then(function () {
+    S.buyCache = {}; closeSheet();
+    toast(kw ? 'Готово — похожие товары тоже в «' + g + '»' : 'Готово');
+    return loadBuy(true).then(function () { render(); });
+  }).catch(function (e) { busy(false); toast(e, true); });
+}
+
+// --- группы товаров: создание и правка ---
+function openGroupForm(g) {
+  F = Object.assign({ kind: 'grp', id: '', name: '', keywords: '' }, g || {});
+  openSheet(sheetHead(F.id ? 'Группа товаров' : 'Новая группа товаров') +
+    '<label>Название<input id="g-name" maxlength="60" value="' + esc(F.name) + '" placeholder="Например: Курица"></label>' +
+    '<label>Ключевые слова через запятую<textarea id="g-kw" rows="4" placeholder="КУРИЦ, БЕДР, ГОЛЕН, КРЫЛ">' + esc(F.keywords) + '</textarea></label>' +
+    '<p class="muted small" style="margin:-4px 2px 12px">Товар попадёт в группу, если слово в его названии начинается с одного из ключевых слов. При совпадении с несколькими группами побеждает самое длинное слово — так «НАГГЕТС» отделит наггетсы от курицы.</p>' +
+    '<div class="actions">' + (F.id ? '<button class="btn danger" data-act="grp-del">Удалить</button>' : '') + '<button class="btn primary" data-act="grp-save">Сохранить</button></div>');
+}
+function saveGroupForm() {
+  var g = { id: F.id, name: val('g-name').trim(), keywords: val('g-kw') };
+  if (!g.name) return toast('Введите название', true);
+  busy(true);
+  api('saveGroup', { group: g }).then(function (saved) {
+    var list = S.data.productGroups || (S.data.productGroups = []);
+    upsert(list, saved); S.buyCache = {};
+    closeSheet(); render(); toast('Сохранено — покупки пересчитаны');
+  }).catch(function (e) { busy(false); toast(e, true); });
+}
+function groupsSection() {
+  var gs = (S.data.productGroups || []).slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
+  return '<details class="section rules"' + (S.groupsOpen ? ' open' : '') + ' data-k="groupsOpen"><summary>Группы товаров <span class="muted small">' + gs.length + ' ›</span></summary>' +
+    '<p class="muted small" style="margin-bottom:8px">По ним товары из чеков собираются во вкладке «Покупки»: бедро, голень, крыло → «Курица».</p>' +
+    '<div class="actions" style="margin-bottom:8px"><button class="btn ghost small" data-act="grp-new">+ Группа</button></div>' +
+    gs.map(function (g) {
+      return '<button class="rule" style="width:100%;text-align:left" data-act="grp-edit" data-id="' + g.id + '"><div class="mid"><div class="t1">' + esc(g.name) + '</div><div class="t2">' + esc(g.keywords || '—') + '</div></div><span class="muted">›</span></button>';
+    }).join('') + '</details>';
+}
+
+Object.assign(ACTIONS, {
+  'menu': function () { document.body.classList.toggle('navopen'); },
+  'navclose': function () { document.body.classList.remove('navopen'); },
+  'buy-mode': function (el) { S.buy.mode = el.dataset.m; if (S.buy.mode === 'year') S.buy.year = Number(S.ym.slice(0, 4)); render(); },
+  'buy-year': function (el) { S.buy.year += Number(el.dataset.k); render(); },
+  'buy-group': function (el) { openBuyGroup(el.dataset.g); },
+  'buy-item': function (el) { var id = el.dataset.id; closeSheet(); openBuyItem(id); },
+  'bi-save': function () { saveBuyItem(); },
+  'grp-new': function () { openGroupForm(); },
+  'grp-edit': function (el) {
+    var g = (S.data.productGroups || []).find(function (x) { return x.id === el.dataset.id; });
+    if (g) openGroupForm(Object.assign({}, g));
+  },
+  'grp-save': function () { saveGroupForm(); },
+  'grp-del': function (el) {
+    if (!el.dataset.sure) { el.dataset.sure = '1'; el.textContent = 'Точно удалить?'; return; }
+    busy(true);
+    var id = F.id;
+    api('deleteGroup', { id: id }).then(function () {
+      S.data.productGroups = (S.data.productGroups || []).filter(function (g) { return g.id !== id; });
+      S.buyCache = {}; closeSheet(); render(); toast('Группа удалена');
+    }).catch(function (e) { busy(false); toast(e, true); });
+  }
+});
+// пункты меню закрывают выезжающую панель
+['view', 'add', 'rc-scan'].forEach(function (k) {
+  var fn = ACTIONS[k];
+  ACTIONS[k] = function (el) { document.body.classList.remove('navopen'); fn(el); };
+});
+document.addEventListener('change', function (e) {
+  if (e.target.id === 'bi-group') $('#bi-new-wrap').style.display = e.target.value === '__new' ? 'block' : 'none';
 });
 </script>
 </body>

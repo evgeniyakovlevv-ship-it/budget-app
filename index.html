@@ -191,6 +191,16 @@ body.auth .sidebar, body.auth .bottomnav{display:none}
 .offline{background:color-mix(in srgb,var(--yellow) 18%,transparent);color:var(--yellow);font-size:13px;border-radius:10px;padding:8px 12px;margin-bottom:12px;text-align:center}
 
 .addrow{display:flex;gap:8px;margin:0 0 12px}
+.pbtn{gap:6px;padding:8px 14px;font-weight:600;font-size:14px;cursor:pointer}
+.mgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.mcell{padding:11px 4px;border-radius:10px;background:var(--panel2);border:1px solid var(--border);font-size:14px}
+.mcell.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.mcell.today{box-shadow:inset 0 0 0 2px var(--green)}
+.dash{display:grid;grid-template-columns:minmax(0,1fr);gap:0 12px;align-items:start}
+@media (min-width:900px){
+  .dash{grid-template-columns:1fr 1fr}
+  .dash .d-lim{order:1}.dash .d-str{order:2}.dash .d-rec{order:3}.dash .d-trend{order:4}
+}
 .foldh{cursor:pointer;user-select:none}
 .foldh>span:first-child{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .foldh .chev{color:var(--muted);font-size:14px}
@@ -298,8 +308,9 @@ var NAV = [
   { id: 'cats', ic: '🏷️', t: 'Категории' }
 ];
 
-var S = { data: null, view: 'home', ym: ymOf(todayIso()), filter: { type: 'all', cat: '', q: '' }, catTab: 'expense' };
+var S = { data: null, view: 'home', ym: ymOf(todayIso()), period: { from: ymOf(todayIso()) + '-01', to: '' }, filter: { type: 'all', cat: '', q: '' }, catTab: 'expense' };
 var F = null; // состояние открытой формы
+S.period.to = S.period.from.slice(0, 8) + pad(new Date(Number(S.ym.slice(0, 4)), Number(S.ym.slice(5)), 0).getDate());
 
 // ---------- утилиты ----------
 function pad(n) { return String(n).padStart(2, '0'); }
@@ -452,18 +463,67 @@ function renderNav() {
   $('#bottomnav').innerHTML = '';
 }
 
-function monthSwitcher() {
-  return '<div class="month"><button data-act="month" data-k="-1" aria-label="Предыдущий месяц">‹</button><span>' + ymTitle(S.ym) +
-    '</span><button data-act="month" data-k="1" aria-label="Следующий месяц">›</button></div>';
+// ---------- период ----------
+function lastDay(ym) { return ym + '-' + pad(daysIn(ym)); }
+function setPeriod(from, to) {
+  if (from > to) { var t = from; from = to; to = t; }
+  S.period = { from: from, to: to }; S.ym = ymOf(to);
 }
+function periodMonths() {
+  var out = [], m = ymOf(S.period.from), end = ymOf(S.period.to);
+  while (m <= end && out.length < 240) { out.push(m); m = shiftYm(m, 1); }
+  return out;
+}
+function periodOps() {
+  var f = S.period.from, t = S.period.to;
+  return S.data.ops.filter(function (o) { return o.date >= f && o.date <= t; });
+}
+function periodTitle() {
+  var f = S.period.from, t = S.period.to, fm = ymOf(f), tm = ymOf(t);
+  var fullFrom = f.slice(8) === '01', fullTo = t === lastDay(tm);
+  if (fullFrom && fullTo) {
+    if (fm === tm) return ymTitle(fm);
+    if (fm.slice(5) === '01' && tm.slice(5) === '12' && fm.slice(0, 4) === tm.slice(0, 4)) return fm.slice(0, 4) + ' год';
+    return ymShort(fm) + ' — ' + ymShort(tm);
+  }
+  var d = function (x) { var p = x.split('-').map(Number); return p[2] + ' ' + MONTHS_GEN[p[1] - 1] + (x.slice(0, 4) !== todayIso().slice(0, 4) ? ' ' + p[0] : ''); };
+  return f === t ? d(f) : d(f) + ' — ' + d(t);
+}
+function monthSwitcher() {
+  return '<button class="month pbtn" data-act="period">📅 <span>' + periodTitle() + '</span> ▾</button>';
+}
+function openPeriod() {
+  F = { kind: 'period', year: Number(S.period.to.slice(0, 4)), pick: '' };
+  renderPeriod();
+}
+function renderPeriod() {
+  var now = todayIso(), cy = ymOf(now), y = F.year;
+  var pf = ymOf(S.period.from), pt = ymOf(S.period.to);
+  var presets = [
+    ['cur', 'Этот месяц'], ['prev', 'Прошлый месяц'], ['3m', '3 месяца'], ['6m', 'Полгода'], ['year', 'Этот год'], ['pyear', 'Прошлый год']
+  ];
+  openSheet(sheetHead('Период') +
+    '<div class="chips" style="flex-wrap:wrap">' + presets.map(function (p) { return '<button class="chip" data-act="per-preset" data-p="' + p[0] + '">' + p[1] + '</button>'; }).join('') + '</div>' +
+    '<div class="month" style="margin:6px auto 10px;width:max-content"><button data-act="per-year" data-k="-1">‹</button><span>' + y + '</span><button data-act="per-year" data-k="1">›</button></div>' +
+    '<div class="mgrid">' + MONTHS_SHORT.map(function (n, i) {
+      var m = y + '-' + pad(i + 1);
+      var cls = (F.pick ? (m === F.pick ? ' on' : '') : (m >= pf && m <= pt ? ' on' : '')) + (m === cy ? ' today' : '');
+      return '<button class="mcell' + cls + '" data-act="per-month" data-m="' + m + '">' + n + '</button>';
+    }).join('') + '</div>' +
+    '<p class="muted small" style="text-align:center;margin:6px 0 12px">' + (F.pick ? 'Выбран ' + ymTitle(F.pick) + '. Нажмите второй месяц — получится интервал, или «Применить».' : 'Нажмите месяц, затем второй — для интервала из нескольких месяцев.') + '</p>' +
+    '<div class="row2"><label>С даты<input id="per-from" type="date" value="' + S.period.from + '"></label><label>По дату<input id="per-to" type="date" value="' + S.period.to + '"></label></div>' +
+    '<div class="actions"><button class="btn ghost" data-act="per-dates">По датам</button><button class="btn primary" data-act="per-apply">Применить</button></div>');
+}
+function applyPeriod(from, to) { setPeriod(from, to); S.buyCache = S.buyCache || {}; closeSheet(); render(); }
 
 function viewHome() {
-  var ym = S.ym, ops = opsOf(ym), now = todayIso(), curYm = ymOf(now);
+  var ym = S.ym, ops = periodOps(), now = todayIso(), curYm = ymOf(now), pms = periodMonths(), nm = pms.length;
   var inc = total(ops, 'income'), exp = total(ops, 'expense'), sav = total(ops, 'saving');
-  var pInc = recTotal(ym, 'income'), pExp = recTotal(ym, 'expense'), pSav = recTotal(ym, 'saving');
+  var recSum = function (t) { return pms.reduce(function (a, m) { return a + recTotal(m, t); }, 0); };
+  var pInc = recSum('income'), pExp = recSum('expense'), pSav = recSum('saving');
   var left = inc - exp - sav;
 
-  var html = '<div class="topbar"><div class="title">Обзор</div>' + monthSwitcher() + '</div>' + '<div class="addrow"><button class="btn primary" data-act="add">+ Операция</button><button class="btn ghost" data-act="rc-scan">📷 Чек по QR</button></div>';
+  var html = '<div class="topbar"><div class="title">Обзор</div>' + monthSwitcher() + '</div>';
   html += '<div class="cards">' +
     card('Доходы', money(inc), 'pos', pInc ? 'план ' + money(pInc) : '') +
     card('Расходы', money(exp), 'neg', pExp ? 'обязательные ' + money(pExp) : '') +
@@ -495,15 +555,18 @@ function viewHome() {
   // лимиты
   var spent = {};
   ops.forEach(function (o) { if (o.type === 'expense') spent[o.category] = (spent[o.category] || 0) + o.amount; });
-  var pace = ym === curYm ? Number(now.slice(8)) / daysIn(ym) : (ym < curYm ? 1 : 0);
+  // доля прошедшего времени периода — для отметки «сегодня» на шкале лимита
+  var dnum = function (x) { return new Date(x.slice(0, 4), Number(x.slice(5, 7)) - 1, Number(x.slice(8))).getTime(); };
+  var inPeriod = now >= S.period.from && now <= S.period.to;
+  var pace = inPeriod ? (dnum(now) - dnum(S.period.from) + 864e5) / (dnum(S.period.to) - dnum(S.period.from) + 864e5) : (S.period.to < now ? 1 : 0);
   var limited = catsOf('expense', true).filter(function (c) { return c.limit > 0; });
   var limHtml = limited.length ? limited.map(function (c) {
-    var s = spent[c.name] || 0, pct = s / c.limit;
+    var lim = c.limit * nm, s = spent[c.name] || 0, pct = s / lim;
     var cls = pct > 1 ? 'over' : (pct > pace + 0.1 ? 'warn' : '');
-    var rest = c.limit - s;
-    return '<div class="lim"><div class="lim-top"><b>' + esc(c.icon) + ' ' + esc(c.name) + '</b><span>' + money(s) + ' <span class="muted">/ ' + money(c.limit) + '</span></span></div>' +
+    var rest = lim - s;
+    return '<div class="lim"><div class="lim-top"><b>' + esc(c.icon) + ' ' + esc(c.name) + '</b><span>' + money(s) + ' <span class="muted">/ ' + money(lim) + '</span></span></div>' +
       '<div class="bar ' + cls + '"><i style="width:' + Math.min(100, pct * 100).toFixed(1) + '%"></i>' +
-      (ym === curYm ? '<em style="left:' + (pace * 100).toFixed(1) + '%" title="Сегодня"></em>' : '') + '</div>' +
+      (inPeriod ? '<em style="left:' + (pace * 100).toFixed(1) + '%" title="Сегодня"></em>' : '') + '</div>' +
       '<div class="lim-sub">' + (rest >= 0 ? 'Осталось ' + money(rest) : '<span class="neg">Перерасход ' + money(-rest) + '</span>') + '</div></div>';
   }).join('') : '<div class="empty">Лимиты не заданы.<br><button class="linkbtn" data-act="view" data-v="cats">Задать лимиты в категориях →</button></div>';
 
@@ -524,7 +587,7 @@ function viewHome() {
           '</span><b>' + money(e[1]) + '</b><span class="pc">' + Math.round(e[1] / exp * 100) + '%</span></button>';
       }).join('') + '</div></div>';
   } else {
-    structHtml = '<div class="empty">В этом месяце расходов нет</div>';
+    structHtml = '<div class="empty">За этот период расходов нет</div>';
   }
 
   // регулярные платежи месяца
@@ -555,12 +618,12 @@ function viewHome() {
     { name: 'Расходы', color: 'var(--red)', values: fc.exp, dashed: true }
   ], { current: curYm }) + fc.note;
 
-  html += '<div class="grid2">' +
-    foldSec('limits', 'Лимиты по категориям', limHtml) +
-    '<div class="section"><h3>Структура расходов</h3>' + structHtml + '</div>' +
-    '</div><div class="grid2">' +
-    foldSec('rec', 'Регулярные платежи' + (unpaid ? ' <small>осталось внести ' + money(unpaid) + '</small>' : ''), recHtml) +
-    '<div class="section"><h3>Динамика за полгода</h3>' + trendHtml + '</div>' +
+  // на телефоне — одна колонка в порядке разметки, на компьютере — две колонки (порядок задан в CSS)
+  html += '<div class="dash">' +
+    foldSec('limits', 'Лимиты по категориям' + (nm > 1 ? ' <small>за ' + nm + ' мес.</small>' : ''), limHtml, 'd-lim') +
+    foldSec('rec', 'Регулярные платежи' + (nm > 1 ? ' <small>' + ymTitle(ym) + '</small>' : '') + (unpaid ? ' <small>осталось внести ' + money(unpaid) + '</small>' : ''), recHtml, 'd-rec') +
+    '<div class="section d-str"><h3>Структура расходов</h3>' + structHtml + '</div>' +
+    '<div class="section d-trend"><h3>Динамика за полгода</h3>' + trendHtml + '</div>' +
     '</div>' +
     '<div class="section"><h3>Прогноз на полгода <small>по регулярным платежам</small></h3>' + fcHtml + '</div>';
   return html;
@@ -643,7 +706,7 @@ function card(lbl, val, cls, sub) {
 function viewOps() {
   var f = S.filter;
   var names = {};
-  opsOf(S.ym).forEach(function (o) { if (f.type === 'all' || o.type === f.type) names[o.type + '|' + o.category] = [o.type, o.category]; });
+  periodOps().forEach(function (o) { if (f.type === 'all' || o.type === f.type) names[o.type + '|' + o.category] = [o.type, o.category]; });
   TYPE_KEYS.forEach(function (t) {
     if (f.type !== 'all' && f.type !== t) return;
     catsOf(t).forEach(function (c) { names[t + '|' + c.name] = [t, c.name]; });
@@ -652,10 +715,10 @@ function viewOps() {
     var v = names[k], label = (f.type === 'all' ? TYPES[v[0]].one + ': ' : '') + v[1];
     return '<option value="' + esc(k) + '"' + (f.cat === k ? ' selected' : '') + '>' + esc(label) + '</option>';
   }).join('');
-  return '<div class="topbar"><div class="title">Операции</div>' + monthSwitcher() + '</div>' + '<div class="addrow"><button class="btn primary" data-act="add">+ Операция</button><button class="btn ghost" data-act="rc-scan">📷 Чек по QR</button></div>' +
+  return '<div class="topbar"><div class="title">Операции</div>' + monthSwitcher() + '</div>' + '<div class="addrow"><button class="btn primary" data-act="add">+ Операция</button></div>' +
     '<div class="chips">' + [['all', 'Все']].concat(TYPE_KEYS.concat(['transfer']).map(function (t) { return [t, TYPES[t].many]; })).map(function (c) {
       return '<button class="chip' + (f.type === c[0] && !f.noRcpt ? ' on' : '') + '" data-act="ftype" data-t="' + c[0] + '">' + c[1] + '</button>';
-    }).join('') + '<button class="chip' + (f.noRcpt ? ' on' : '') + '" data-act="fnorc">📷 Без чека ' + opsOf(S.ym).filter(needsReceipt).length + '</button></div>' +
+    }).join('') + '<button class="chip' + (f.noRcpt ? ' on' : '') + '" data-act="fnorc">📷 Без чека ' + periodOps().filter(needsReceipt).length + '</button></div>' +
     '<div class="filters"><select id="fcat"><option value="">Все категории</option>' + opts + '</select>' +
     '<input id="fq" type="search" placeholder="Поиск…" value="' + esc(f.q) + '"></div>' +
     '<div id="opsList"></div>';
@@ -663,7 +726,7 @@ function viewOps() {
 
 function renderOpsList() {
   var f = S.filter, q = f.q.trim().toLowerCase();
-  var list = opsOf(S.ym).filter(function (o) {
+  var list = periodOps().filter(function (o) {
     if (f.type !== 'all' && o.type !== f.type) return false;
     if (f.noRcpt && !needsReceipt(o)) return false;
     if (f.cat && f.cat !== o.type + '|' + o.category) return false;
@@ -705,11 +768,6 @@ function renderOpsList() {
 function viewRec() {
   var curYm = ymOf(todayIso());
   var html = '<div class="topbar"><div class="title">Регулярные</div><button class="btn primary small" data-act="add-rec">+ Добавить</button></div>';
-  html += '<div class="cards">' +
-    card('Доходы в месяц', money(recTotal(curYm, 'income')), 'pos', 'по плану') +
-    card('Обязательные расходы', money(recTotal(curYm, 'expense')), 'neg', 'в месяц') +
-    card('Сбережения', money(recTotal(curYm, 'saving')), 'sav', 'в месяц') +
-    card('Свободно', money(recTotal(curYm, 'income') - recTotal(curYm, 'expense') - recTotal(curYm, 'saving')), '', 'на жизнь и остальное') + '</div>';
   TYPE_KEYS.forEach(function (t) {
     var list = S.data.rec.filter(function (r) { return r.type === t; }).sort(function (a, b) { return (b.active - a.active) || (a.day - b.day); });
     if (!list.length) return;
@@ -997,8 +1055,33 @@ function deleteRec(btn) {
 var ACTIONS_EXTRA;
 var ACTIONS = {
   'view': function (el) { S.view = el.dataset.v; render(true); },
-  'month': function (el) { S.ym = shiftYm(S.ym, Number(el.dataset.k)); render(); },
-  'set-month': function (el) { S.ym = el.dataset.ym; render(); },
+  'month': function (el) { var m = shiftYm(S.ym, Number(el.dataset.k)); setPeriod(m + '-01', lastDay(m)); render(); },
+  'set-month': function (el) { setPeriod(el.dataset.ym + '-01', lastDay(el.dataset.ym)); render(); },
+  'period': function () { openPeriod(); },
+  'per-year': function (el) { F.year += Number(el.dataset.k); renderPeriod(); },
+  'per-month': function (el) {
+    var m = el.dataset.m;
+    if (!F.pick) { F.pick = m; renderPeriod(); return; }
+    var a = F.pick < m ? F.pick : m, b = F.pick < m ? m : F.pick;
+    applyPeriod(a + '-01', lastDay(b));
+  },
+  'per-apply': function () {
+    if (F.pick) applyPeriod(F.pick + '-01', lastDay(F.pick)); else closeSheet();
+  },
+  'per-dates': function () {
+    var a = val('per-from'), b = val('per-to');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !/^\d{4}-\d{2}-\d{2}$/.test(b)) return toast('Укажите обе даты', true);
+    applyPeriod(a, b);
+  },
+  'per-preset': function (el) {
+    var cur = ymOf(todayIso()), y = cur.slice(0, 4), p = el.dataset.p;
+    if (p === 'cur') applyPeriod(cur + '-01', lastDay(cur));
+    else if (p === 'prev') { var pm = shiftYm(cur, -1); applyPeriod(pm + '-01', lastDay(pm)); }
+    else if (p === '3m') applyPeriod(shiftYm(cur, -2) + '-01', lastDay(cur));
+    else if (p === '6m') applyPeriod(shiftYm(cur, -5) + '-01', lastDay(cur));
+    else if (p === 'year') applyPeriod(y + '-01-01', y + '-12-31');
+    else if (p === 'pyear') { var py = Number(y) - 1; applyPeriod(py + '-01-01', py + '-12-31'); }
+  },
   'add': function () { openOpForm(); },
   'close': function () { closeSheet(); },
   'goto-cat': function (el) { S.view = 'ops'; S.filter = { type: el.dataset.type, cat: el.dataset.type + '|' + el.dataset.name, q: '' }; render(true); },
@@ -1548,7 +1631,8 @@ S.buyCache = {};
 
 function buyRange() {
   if (S.buy.mode === 'year') return { key: 'y' + S.buy.year, from: S.buy.year + '-01', to: S.buy.year + '-12', title: S.buy.year + ' год' };
-  return { key: 'm' + S.ym, from: S.ym, to: S.ym, title: ymTitle(S.ym) };
+  var pf = ymOf(S.period.from), pt = ymOf(S.period.to);
+  return { key: 'm' + pf + pt, from: pf, to: pt, title: periodTitle() };
 }
 function fmtQty(v, unit) {
   var n = unit === 'шт' ? Math.round(v * 10) / 10 : Math.round(v * 100) / 100;
@@ -1588,15 +1672,14 @@ function buySwitcher() {
 function viewBuy() {
   var rg = buyRange(), d = S.buyCache[rg.key];
   var html = '<div class="topbar"><div class="title">Покупки</div>' + buySwitcher() + '</div>' +
-    '<div class="addrow"><button class="btn ghost" data-act="rc-scan">📷 Добавить чек по QR</button></div>' +
-    '<div class="chips"><button class="chip' + (S.buy.mode === 'month' ? ' on' : '') + '" data-act="buy-mode" data-m="month">Месяц</button>' +
+    '<div class="chips"><button class="chip' + (S.buy.mode === 'month' ? ' on' : '') + '" data-act="buy-mode" data-m="month">Период</button>' +
     '<button class="chip' + (S.buy.mode === 'year' ? ' on' : '') + '" data-act="buy-mode" data-m="year">Год</button></div>';
   if (!d) {
     loadBuy().then(function () { if (S.view === 'buy') render(); }).catch(function (e) { toast(e, true); });
     return html + '<div class="loader" style="height:30vh"><div class="spin"></div>Загружаю покупки…</div>';
   }
   if (!d.rows.length) {
-    return html + '<div class="section"><div class="empty">За ' + (S.buy.mode === 'year' ? S.buy.year + ' год' : 'этот месяц') +
+    return html + '<div class="section"><div class="empty">За ' + (S.buy.mode === 'year' ? S.buy.year + ' год' : 'этот период') +
       ' покупок из чеков нет.<br>Добавьте чек по QR — товары появятся здесь.</div></div>';
   }
   var groups = aggGroups(d.rows), total = d.rows.reduce(function (s, r) { return s + r[7]; }, 0);

@@ -1938,7 +1938,18 @@ function balances() {
   });
   var out = {};
   accList(true).forEach(function (a) {
-    out[a.id] = { calc: calc[a.id], shown: a.sync && a.bankBalance != null ? a.bankBalance : calc[a.id], bank: a.sync && a.bankBalance != null };
+    var bank = a.sync && a.bankBalance != null;
+    var shown = calc[a.id], manual = 0;
+    if (bank) {
+      // баланс из SMS банка + операции, внесённые вручную после этой SMS (до следующей SMS банк о них «не знает» для приложения)
+      var at = a.bankBalanceAt || '';
+      S.data.ops.forEach(function (o) {
+        if (o.kind || (o.changed && o.changed <= at)) return;
+        manual += opAccEffect(o, a.id);
+      });
+      shown = Math.round((a.bankBalance + manual) * 100) / 100;
+    }
+    out[a.id] = { calc: calc[a.id], shown: shown, bank: bank, manual: manual };
   });
   return out;
 }
@@ -2027,7 +2038,7 @@ function openAccount(id) {
   F = { kind: 'accv', id: id };
   openSheet(sheetHead(esc(a.icon + ' ' + a.name)) +
     '<div class="rcsum"><div><b class="' + (b.shown < 0 ? 'neg' : '') + '" style="font-size:22px">' + money(b.shown) + '</b><div class="muted small">' +
-    (b.bank ? 'баланс из SMS банка, ' + fmtAt(a.bankBalanceAt) : 'по операциям в приложении') + '</div></div>' +
+    (b.bank ? 'из SMS банка, ' + fmtAt(a.bankBalanceAt) + (b.manual ? ' · вручную после неё: ' + (b.manual > 0 ? '+' : '−') + money(Math.abs(b.manual)) : '') : 'по операциям в приложении') + '</div></div>' +
     '<div class="muted small" style="text-align:right">' + ACC_TYPES[a.type] + (a.bank ? '<br>' + esc(a.bank) : '') + '</div></div>' +
     '<div class="actions" style="margin-bottom:12px">' + (b.bank ? '' : '<button class="btn primary" data-act="acc-fix">Сверить баланс</button>') +
     '<button class="btn ghost" data-act="acc-edit">Настройки счёта</button></div>' +

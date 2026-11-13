@@ -789,6 +789,7 @@ function deleteOp(btn) {
   var id = F.id;
   call('deleteOperation', id).then(function () {
     S.data.ops = S.data.ops.filter(function (o) { return o.id !== id; });
+    S.buyCache = {}; // товары из чека этой операции тоже удалены
     closeSheet(); render(); toast('Удалено');
   }).catch(function (e) { busy(false); toast(e, true); });
 }

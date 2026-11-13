@@ -557,7 +557,7 @@ function viewHome() {
     '<div class="section"><h3>Регулярные платежи' + (unpaid ? ' <small>осталось внести ' + money(unpaid) + '</small>' : '') + '</h3>' + recHtml + '</div>' +
     '<div class="section"><h3>Динамика за полгода</h3>' + trendHtml + '</div>' +
     '</div>' +
-    '<div class="section"><h3>Прогноз на полгода <small>план + средние траты</small></h3>' + fcHtml + '</div>';
+    '<div class="section"><h3>Прогноз на полгода <small>по регулярным платежам</small></h3>' + fcHtml + '</div>';
   return html;
 }
 
@@ -601,47 +601,21 @@ function lineChart(months, series, opt) {
     return '<span><i style="background:' + s.color + '"></i>' + s.name + '</span>';
   }).join('') + '</div>';
 }
-// прогноз: регулярные платежи + средние нерегулярные доходы/расходы за последние 3 полных месяца
+// прогноз: только запланированные (регулярные) доходы, расходы и сбережения на 6 месяцев вперёд
 function forecast() {
   var cur = ymOf(todayIso()), months = [], inc = [], exp = [], sav = [];
-  // категории, у которых есть регулярный платёж, в «средние траты» не берём — их покрывает план
-  var planned = {};
-  S.data.rec.forEach(function (r) { if (r.active) planned[r.type + '|' + r.category] = 1; });
-  var isVar = function (o, type) { return o.type === type && !o.recurringId && !planned[type + '|' + o.category]; };
-  var avg = function (type) {
-    var s = 0;
-    for (var k = 1; k <= 3; k++) opsOf(shiftYm(cur, -k)).forEach(function (o) { if (isVar(o, type)) s += o.amount; });
-    return s / 3;
-  };
-  var varInc = avg('income'), varExp = avg('expense');
   for (var k = 0; k < 6; k++) {
-    var m = shiftYm(cur, k), rec = recFor(m);
-    var pl = { income: 0, expense: 0, saving: 0 };
-    if (k === 0) {
-      var ops = opsOf(m);
-      // платёж уже внесён, если есть операция по нему или в той же категории (например, зарплата пришла из SMS)
-      rec.forEach(function (r) {
-        var paid = ops.some(function (o) { return o.recurringId === r.id || (o.type === r.type && o.category === r.category && !o.recurringId); });
-        if (!paid) pl[r.type] += r.amount;
-      });
-      var actVarExp = ops.reduce(function (a, o) { return a + (isVar(o, 'expense') ? o.amount : 0); }, 0);
-      var actVarInc = ops.reduce(function (a, o) { return a + (isVar(o, 'income') ? o.amount : 0); }, 0);
-      inc.push(total(ops, 'income') + pl.income + Math.max(0, varInc - actVarInc));
-      exp.push(total(ops, 'expense') + pl.expense + Math.max(0, varExp - actVarExp));
-      sav.push(total(ops, 'saving') + pl.saving);
-    } else {
-      rec.forEach(function (r) { pl[r.type] += r.amount; });
-      inc.push(pl.income + varInc); exp.push(pl.expense + varExp); sav.push(pl.saving);
-    }
+    var m = shiftYm(cur, k);
     months.push(m);
+    inc.push(recTotal(m, 'income')); exp.push(recTotal(m, 'expense')); sav.push(recTotal(m, 'saving'));
   }
-  var free = inc.reduce(function (a, v, i) { return a + v - exp[i] - sav[i]; }, 0);
-  var savSum = sav.reduce(function (a, v) { return a + v; }, 0);
-  var note = '<div class="fcnote">За 6 месяцев: доходы <b class="pos">' + money(inc.reduce(function (a, v) { return a + v; }, 0)) + '</b>, расходы <b class="neg">' +
-    money(exp.reduce(function (a, v) { return a + v; }, 0)) + '</b>' + (savSum ? ', отложить <b class="sav">' + money(savSum) + '</b>' : '') +
-    '. Свободный остаток: <b class="' + (free < 0 ? 'neg' : 'pos') + '">' + money(free) + '</b> (≈ ' + money(free / 6) + ' в месяц).' +
-    '<br><span class="muted">Нерегулярные траты взяты как среднее за 3 прошлых месяца: ' + money(varExp) + ' в месяц' + (varInc ? ', нерегулярные доходы — ' + money(varInc) : '') + '.</span></div>';
-  if (free < 0) note += '<div class="fcwarn">⚠️ По прогнозу расходы и сбережения превышают доходы — стоит пересмотреть лимиты или регулярные платежи.</div>';
+  var sum = function (a) { return a.reduce(function (x, v) { return x + v; }, 0); };
+  var free = sum(inc) - sum(exp) - sum(sav);
+  var note = '<div class="fcnote">За 6 месяцев по плану: доходы <b class="pos">' + money(sum(inc)) + '</b>, расходы <b class="neg">' + money(sum(exp)) + '</b>' +
+    (sum(sav) ? ', отложить <b class="sav">' + money(sum(sav)) + '</b>' : '') +
+    '. Остаётся: <b class="' + (free < 0 ? 'neg' : 'pos') + '">' + money(free) + '</b> (≈ ' + money(free / 6) + ' в месяц) — на всё нерегулярное: продукты, кафе, покупки.' +
+    '<br><span class="muted">Меняйте суммы и сроки в «Регулярных» — график пересчитается.</span></div>';
+  if (free < 0) note += '<div class="fcwarn">⚠️ Запланированные расходы и сбережения больше запланированных доходов.</div>';
   return { months: months, inc: inc, exp: exp, note: note };
 }
 

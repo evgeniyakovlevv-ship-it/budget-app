@@ -184,6 +184,15 @@ body.auth .sidebar, body.auth .bottomnav{display:none}
 .offline{background:color-mix(in srgb,var(--yellow) 18%,transparent);color:var(--yellow);font-size:13px;border-radius:10px;padding:8px 12px;margin-bottom:12px;text-align:center}
 
 .addrow{display:flex;gap:8px;margin:0 0 12px}
+.seg4 button{font-size:13px;padding-left:4px;padding-right:4px}
+.money h3 .btn{font-weight:500}
+.mgroup{margin-bottom:8px}
+.mhead{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);padding:4px 2px}
+.mhead b{color:var(--text)}
+.mtotal{border-top:1px solid var(--border);margin-top:6px;padding-top:9px;font-size:15px;color:var(--text)}
+.macc{display:flex;justify-content:space-between;width:100%;padding:7px 8px;border-radius:9px;font-size:14px;text-align:left}
+.macc:hover{background:var(--panel2)}
+.macc .sync{font-style:normal;color:var(--green);font-size:12px}
 .addrow .btn{min-height:42px;padding:9px 12px}
 .menubtn{width:38px;height:38px;border-radius:10px;font-size:20px;line-height:1;margin-right:6px;vertical-align:middle;background:var(--panel);border:1px solid var(--border)}
 .title{display:flex;align-items:center}
@@ -391,7 +400,7 @@ function catInfo(type, name) {
     { name: name, icon: '•', color: '#6e7681', limit: 0 };
 }
 function opsOf(ym) { return S.data.ops.filter(function (o) { return o.date.slice(0, 7) === ym; }); }
-function total(ops, type) { return ops.reduce(function (s, o) { return s + (o.type === type ? o.amount : 0); }, 0); }
+function total(ops, type) { return ops.reduce(function (s, o) { return s + (o.type === type ? o.amount : 0); }, 0); } // переопределяется в блоке «Счета»
 function recFor(ym) {
   return S.data.rec.filter(function (r) { return r.active && r.start <= ym && (!r.end || ym <= r.end); })
     .sort(function (a, b) { return a.day - b.day; });
@@ -414,6 +423,7 @@ function render(resetScroll) {
   else if (S.view === 'rec') main.innerHTML = viewRec();
   else if (S.view === 'cats') main.innerHTML = viewCats();
   else if (S.view === 'buy') main.innerHTML = viewBuy();
+  else if (S.view === 'acc') main.innerHTML = viewAcc();
   var tt = main.querySelector('.topbar .title');
   if (tt) tt.insertAdjacentHTML('afterbegin', '<button class="menubtn" data-act="menu" aria-label="Меню">☰</button>');
   if (S.offline) main.insertAdjacentHTML('afterbegin', '<div class="offline">Нет связи — показаны сохранённые данные. Изменения пока недоступны.</div>');
@@ -447,7 +457,7 @@ function viewHome() {
     card('Расходы', money(exp), 'neg', pExp ? 'обязательные ' + money(pExp) : '') +
     card('Сбережения', money(sav), 'sav', pSav ? 'цель ' + money(pSav) : '') +
     card('Остаток', money(left), left < 0 ? 'neg' : '', 'доходы − расходы − сбережения') +
-    '</div>';
+    '</div>' + (S.data.accounts ? moneySection() : '');
 
   // операции из банка, которые нужно разобрать
   var inbox = (S.data.inbox || []).slice().sort(function (a, b) { return b.date.localeCompare(a.date); });
@@ -558,7 +568,7 @@ function viewOps() {
     return '<option value="' + esc(k) + '"' + (f.cat === k ? ' selected' : '') + '>' + esc(label) + '</option>';
   }).join('');
   return '<div class="topbar"><div class="title">Операции</div>' + monthSwitcher() + '</div>' + '<div class="addrow"><button class="btn primary" data-act="add">+ Операция</button><button class="btn ghost" data-act="rc-scan">📷 Чек по QR</button></div>' +
-    '<div class="chips">' + [['all', 'Все']].concat(TYPE_KEYS.map(function (t) { return [t, TYPES[t].many]; })).map(function (c) {
+    '<div class="chips">' + [['all', 'Все']].concat(TYPE_KEYS.concat(['transfer']).map(function (t) { return [t, TYPES[t].many]; })).map(function (c) {
       return '<button class="chip' + (f.type === c[0] && !f.noRcpt ? ' on' : '') + '" data-act="ftype" data-t="' + c[0] + '">' + c[1] + '</button>';
     }).join('') + '<button class="chip' + (f.noRcpt ? ' on' : '') + '" data-act="fnorc">📷 Без чека ' + opsOf(S.ym).filter(needsReceipt).length + '</button></div>' +
     '<div class="filters"><select id="fcat"><option value="">Все категории</option>' + opts + '</select>' +
@@ -593,7 +603,13 @@ function renderOpsList() {
       var dayExp = total(list.filter(function (x) { return x.date === day; }), 'expense');
       html += '<div class="dayhead"><span>' + dayTitle(day) + '</span><span>' + (dayExp ? money(dayExp, '−') : '') + '</span></div>';
     }
-    var c = catInfo(o.type, o.category);
+    var c = o.type === 'transfer' ? { icon: '🔄', color: '#58a6ff' } : o.type === 'adjust' ? { icon: '⚖️', color: '#8b949e' } : catInfo(o.type, o.category);
+    if (o.type === 'transfer' || o.type === 'adjust') {
+      html += '<button class="item" data-act="' + (o.type === 'transfer' ? 'edit-op' : 'acc-open') + '" data-id="' + (o.type === 'transfer' ? o.id : accOf(o)) + '"><div class="ico" style="--c:' + c.color + '">' + c.icon + '</div>' +
+        '<div class="mid"><div class="t1">' + TYPES[o.type].one + '</div><div class="t2">' + esc(o.type === 'transfer' ? accName(accOf(o)) + ' → ' + accName(o.toAccount) : accName(accOf(o)) + (o.comment ? ' · ' + o.comment : '')) + '</div></div>' +
+        '<div class="amt">' + (o.type === 'adjust' ? (o.amount > 0 ? '+' : '−') + money(Math.abs(o.amount)) : money(o.amount)) + '</div></button>';
+      return;
+    }
     html += '<button class="item" data-act="edit-op" data-id="' + o.id + '"><div class="ico" style="--c:' + c.color + '">' + esc(c.icon) + '</div>' +
       '<div class="mid"><div class="t1">' + esc(o.category) + (o.receiptId ? '<span class="rcmark" title="Есть чек">🧾</span>' : needsReceipt(o) ? '<span class="rcmark wait" title="Нет чека">📷</span>' : '') + '</div>' + (o.comment ? '<div class="t2">' + esc(o.comment) + '</div>' : '') + '</div>' +
       '<div class="amt ' + TYPES[o.type].cls + '">' + money(o.amount, TYPES[o.type].sign) + '</div></button>';
@@ -643,7 +659,7 @@ function viewCats() {
   html += '<details class="section rules"' + (S.rulesOpen ? ' open' : '') + '><summary>Правила для SMS из банка <span class="muted small">' + rules.length + ' ›</span></summary>' +
     '<p class="muted small" style="margin-bottom:8px">Если текст SMS содержит шаблон, операция сама попадёт в категорию. Новые правила создаются галочкой «Запомнить» при разборе.</p>' +
     (rules.length ? rules.map(function (r) {
-      var what = r.type === 'skip' ? 'не учитывать' : TYPES[r.type].one + ' → ' + esc(r.category);
+      var what = r.type === 'skip' ? 'не учитывать' : r.type === 'transfer' ? 'Перевод ↔ ' + esc(accName(r.toAccount)) : TYPES[r.type].one + ' → ' + esc(r.category) + (r.toAccount ? ' (' + esc(accName(r.toAccount)) + ')' : '');
       return '<div class="rule"><div class="mid"><div class="t1">' + esc(r.pattern) + '</div><div class="t2">' + what + '</div></div>' +
         '<button class="x" data-act="rule-del" data-id="' + r.id + '" aria-label="Удалить">✕</button></div>';
     }).join('') : '<div class="empty">Правил нет</div>') + '</details>';
@@ -683,13 +699,16 @@ function val(id) { var el = $('#' + id); return el ? el.value : ''; }
 
 // --- операция ---
 function openOpForm(init) {
-  F = Object.assign({ kind: 'op', id: '', type: 'expense', date: todayIso(), amount: '', category: '', comment: '', recurringId: '' }, init || {});
+  F = Object.assign({ kind: 'op', id: '', type: 'expense', date: todayIso(), amount: '', category: '', comment: '', recurringId: '', account: '', toAccount: '' }, init || {});
   if (typeof F.amount === 'number') F.amount = String(F.amount).replace('.', ',');
+  if (S.data.accounts) fillAccDefaults(false);
   renderOpForm(!F.id);
 }
 function syncOpForm() {
   if (!F || F.kind !== 'op' || !$('#f-amount')) return;
   F.amount = val('f-amount'); F.date = val('f-date'); F.comment = val('f-comment');
+  if ($('#f-acc')) F.account = val('f-acc');
+  if ($('#f-acc2')) F.toAccount = val('f-acc2');
   if (F.inboxId && $('#f-rem')) { F.remember = $('#f-rem').checked; F.rulePattern = val('f-pat'); }
 }
 function renderOpForm(focus) {
@@ -698,12 +717,13 @@ function renderOpForm(focus) {
   openSheet(sheetHead(F.inboxId ? 'Операция из банка' : (F.id ? 'Изменить операцию' : 'Новая операция')) +
     (F.inboxId ? '<div class="sms">' + esc(F.smsText) + '</div>' : '') +
     rcFormButtons() +
-    segHtml(F.type, 'op-type') +
+    (S.data.accounts ? opSegHtml() : segHtml(F.type, 'op-type')) +
     '<input id="f-amount" class="amount" inputmode="decimal" placeholder="0 ₽" autocomplete="off" value="' + esc(F.amount) + '">' +
     '<div class="hint">Можно сложить несколько сумм: 350+120</div>' +
-    '<div class="cgrid">' + list.map(function (c) {
+    (F.type === 'transfer' ? '' : '<div class="cgrid">' + list.map(function (c) {
       return '<button class="cchip' + (F.category === c.name ? ' on' : '') + '" style="--c:' + c.color + '" data-act="op-cat" data-name="' + esc(c.name) + '"><span>' + esc(c.icon) + '</span>' + esc(c.name) + '</button>';
-    }).join('') + '</div>' +
+    }).join('') + '</div>') +
+    (S.data.accounts ? accountFields() : '') +
     '<div class="row2"><label>Дата<input id="f-date" type="date" value="' + esc(F.date) + '"></label>' +
     '<label>Комментарий<input id="f-comment" maxlength="200" placeholder="Необязательно" value="' + esc(F.comment) + '"></label></div>' +
     (F.inboxId ?
@@ -734,17 +754,22 @@ function saveOp(more) {
   syncOpForm();
   var amount = parseAmount(F.amount);
   if (!(amount > 0)) return toast('Введите сумму', true);
+  if (F.type === 'transfer') {
+    F.category = 'Перевод';
+    if (!F.account || !F.toAccount) return toast('Выберите оба счёта', true);
+    if (F.account === F.toAccount) return toast('Счета должны различаться', true);
+  }
   if (!F.category) return toast('Выберите категорию', true);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(F.date)) return toast('Укажите дату', true);
   busy(true);
   if (F.inboxId) {
     var pattern = F.remember ? String(F.rulePattern || '').trim() : '';
-    call('resolveInbox', F.inboxId, { type: F.type, date: F.date, amount: amount, category: F.category, comment: F.comment }, pattern)
+    call('resolveInbox', F.inboxId, { type: F.type, date: F.date, amount: amount, category: F.category, comment: F.comment, account: F.account, toAccount: F.toAccount }, pattern)
       .then(function () { closeSheet(); toast(pattern ? 'Добавлено, правило запомнено' : 'Добавлено'); return reload(); })
       .catch(function (e) { busy(false); toast(e, true); });
     return;
   }
-  call('saveOperation', { id: F.id, type: F.type, date: F.date, amount: amount, category: F.category, comment: F.comment, recurringId: F.recurringId })
+  call('saveOperation', { id: F.id, type: F.type, date: F.date, amount: amount, category: F.category, comment: F.comment, recurringId: F.recurringId, account: F.account, toAccount: F.toAccount })
     .then(function (saved) {
       upsert(S.data.ops, saved);
       toast(more ? 'Сохранено — вводите следующую' : 'Сохранено');
@@ -831,7 +856,7 @@ function deleteCat(btn) {
 
 // --- регулярный платёж ---
 function openRecForm(r) {
-  F = Object.assign({ kind: 'rec', id: '', type: 'expense', category: '', amount: '', day: Number(todayIso().slice(8)), start: ymOf(todayIso()), end: '', comment: '', active: true }, r || {});
+  F = Object.assign({ kind: 'rec', id: '', type: 'expense', category: '', amount: '', day: Number(todayIso().slice(8)), start: ymOf(todayIso()), end: '', comment: '', active: true, account: '', toAccount: '' }, r || {});
   if (typeof F.amount === 'number') F.amount = String(F.amount).replace('.', ',');
   renderRecForm();
 }
@@ -840,6 +865,8 @@ function syncRecForm() {
   F.category = val('r-cat'); F.amount = val('r-amount'); F.day = val('r-day');
   F.start = val('r-start'); F.end = val('r-end'); F.comment = val('r-comment');
   F.active = $('#r-active').checked;
+  if ($('#r-acc')) F.account = val('r-acc');
+  if ($('#r-acc2')) F.toAccount = val('r-acc2');
 }
 function renderRecForm() {
   var list = catsOf(F.type);
@@ -851,7 +878,9 @@ function renderRecForm() {
       return '<option' + (F.category === c.name ? ' selected' : '') + ' value="' + esc(c.name) + '">' + esc(c.icon + ' ' + c.name) + '</option>';
     }).join('') + '</select></label>' +
     '<label>Сумма, ₽<input id="r-amount" inputmode="decimal" value="' + esc(F.amount) + '"></label></div>' +
-    '<div class="row2"><label>Число месяца<input id="r-day" type="number" min="1" max="31" value="' + esc(F.day) + '"></label><span></span></div>' +
+    '<div class="row2"><label>Число месяца<input id="r-day" type="number" min="1" max="31" value="' + esc(F.day) + '"></label>' +
+    ((S.data.accounts || []).length ? '<label>' + (F.type === 'income' ? 'На счёт' : 'Со счёта') + '<select id="r-acc">' + accOptions(F.account, null, 'основной') + '</select></label>' : '<span></span>') + '</div>' +
+    (F.type === 'saving' && (S.data.accounts || []).length ? '<label>Куда откладывать<select id="r-acc2">' + accOptions(F.toAccount, function (a) { return a.type === 'savings' || a.type === 'broker'; }, '— не указан —') + '</select></label>' : '') +
     '<div class="row2"><label>С месяца<input id="r-start" type="month" placeholder="2026-11" value="' + esc(F.start) + '"></label>' +
     '<label>По месяц (необяз.)<input id="r-end" type="month" placeholder="2027-05" value="' + esc(F.end) + '"></label></div>' +
     '<label class="check"><input type="checkbox" id="r-active"' + (F.active ? ' checked' : '') + '>Активен</label>' +
@@ -864,7 +893,7 @@ function saveRec() {
   if (!F.category) return toast('Выберите категорию', true);
   if (!(amount > 0)) return toast('Введите сумму', true);
   busy(true);
-  call('saveRecurring', { id: F.id, type: F.type, category: F.category, amount: amount, day: Number(F.day), start: F.start, end: F.end, comment: F.comment, active: F.active })
+  call('saveRecurring', { id: F.id, type: F.type, category: F.category, amount: amount, day: Number(F.day), start: F.start, end: F.end, comment: F.comment, active: F.active, account: F.account, toAccount: F.toAccount })
     .then(function (saved) { upsert(S.data.rec, saved); closeSheet(); render(); toast('Сохранено'); })
     .catch(function (e) { busy(false); toast(e, true); });
 }
@@ -895,9 +924,9 @@ var ACTIONS = {
     var r = S.data.rec.find(function (x) { return x.id === el.dataset.id; });
     if (!r) return;
     var now = todayIso(), planned = recDate(r, S.ym);
-    openOpForm({ type: r.type, category: r.category, amount: r.amount, comment: r.comment, recurringId: r.id, date: planned > now ? now : planned });
+    openOpForm({ type: r.type, category: r.category, amount: r.amount, comment: r.comment, recurringId: r.id, date: planned > now ? now : planned, account: r.account || '', toAccount: r.toAccount || '' });
   },
-  'op-type': function (el) { syncOpForm(); if (F.type !== el.dataset.t) { F.type = el.dataset.t; F.category = ''; } renderOpForm(); },
+  'op-type': function (el) { syncOpForm(); if (F.type !== el.dataset.t) { F.type = el.dataset.t; F.category = ''; if (S.data.accounts) fillAccDefaults(true); } renderOpForm(); },
   'op-cat': function (el) {
     syncOpForm(); F.category = el.dataset.name;
     document.querySelectorAll('.cchip').forEach(function (b) { b.classList.toggle('on', b === el); });
@@ -906,7 +935,7 @@ var ACTIONS = {
   'inbox': function (el) {
     var it = (S.data.inbox || []).find(function (x) { return x.id === el.dataset.id; });
     if (!it) return;
-    openOpForm({ type: it.type, amount: it.amount, date: it.date, comment: it.merchant, inboxId: it.id, smsText: it.text,
+    openOpForm({ type: it.type, amount: it.amount, date: it.date, comment: it.merchant, inboxId: it.id, smsText: it.text, smsAcc: it.account || '', inboxType: it.type,
       rulePattern: ruleKey(it), remember: /покупка|оплата|зачислен/i.test(it.text) });
   },
   'inbox-skip': function () {
@@ -1050,7 +1079,7 @@ function savePassword() {
 }
 
 // ---------- запуск ----------
-(function start() {
+document.addEventListener('DOMContentLoaded', function start() {
   if (!lsGet(LS.api) || !lsGet(LS.token)) { showLogin(); return; }
   // сразу показываем последние сохранённые данные, затем обновляем с сервера
   var cached = lsGet(LS.cache);
@@ -1062,7 +1091,7 @@ function savePassword() {
     if (S.data) { S.offline = true; render(); }
     else $('#main').innerHTML = '<div class="section"><div class="empty">Не удалось загрузить данные:<br>' + esc(e) + '<br><br><button class="btn primary small" onclick="location.reload()">Повторить</button></div></div>';
   });
-})();
+});
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
@@ -1642,6 +1671,242 @@ Object.assign(ACTIONS, {
 });
 document.addEventListener('change', function (e) {
   if (e.target.id === 'bi-group') $('#bi-new-wrap').style.display = e.target.value === '__new' ? 'block' : 'none';
+});
+</script>
+<script>
+// ======================= Счета =======================
+TYPES.transfer = { one: 'Перевод', many: 'Переводы', sign: '', cls: '' };
+TYPES.adjust = { one: 'Корректировка', many: 'Корректировки', sign: '', cls: '' };
+var OP_TYPES = ['expense', 'income', 'saving', 'transfer'];
+var ACC_TYPES = { card: 'Карта', cash: 'Наличные', savings: 'Накопительный', broker: 'Брокерский' };
+var ACC_GROUPS = [
+  { key: 'free', title: 'Свободные', types: ['card', 'cash'] },
+  { key: 'savings', title: 'Накопления', types: ['savings'] },
+  { key: 'broker', title: 'Инвестиции', types: ['broker'] }
+];
+
+function accList(withArchived) {
+  return (S.data.accounts || []).filter(function (a) { return withArchived || !a.archived; })
+    .sort(function (a, b) { return (a.archived - b.archived) || (a.order - b.order); });
+}
+function accById(id) { return (S.data.accounts || []).find(function (a) { return a.id === id; }); }
+function mainAcc() { var l = accList(); return l.find(function (a) { return a.main; }) || l[0] || null; }
+function accOf(o) { if (o.account) return o.account; var m = mainAcc(); return m ? m.id : ''; }
+function accName(id) { var a = accById(id); return a ? a.name : '—'; }
+function isStash(id) { var a = accById(id); return !!a && (a.type === 'savings' || a.type === 'broker'); }
+// снятие с накопительного/брокерского обратно на карту уменьшает «сбережения месяца»
+function savingSign(o) { return isStash(accOf(o)) && !isStash(o.toAccount) ? -1 : 1; }
+function total(ops, type) {
+  return ops.reduce(function (s, o) { return s + (o.type === type ? (type === 'saving' ? savingSign(o) : 1) * o.amount : 0); }, 0);
+}
+/** Балансы: для счетов со сверкой по SMS — баланс из банка, иначе — сумма операций. */
+function balances() {
+  var calc = {};
+  accList(true).forEach(function (a) { calc[a.id] = 0; });
+  var add = function (id, v) { if (id in calc) calc[id] = Math.round((calc[id] + v) * 100) / 100; };
+  S.data.ops.forEach(function (o) {
+    var acc = accOf(o);
+    if (o.type === 'expense') add(acc, -o.amount);
+    else if (o.type === 'income') add(acc, o.amount);
+    else if (o.type === 'adjust') add(acc, o.amount);
+    else if (o.type === 'saving' || o.type === 'transfer') { add(acc, -o.amount); if (o.toAccount) add(o.toAccount, o.amount); }
+  });
+  var out = {};
+  accList(true).forEach(function (a) {
+    out[a.id] = { calc: calc[a.id], shown: a.sync && a.bankBalance != null ? a.bankBalance : calc[a.id], bank: a.sync && a.bankBalance != null };
+  });
+  return out;
+}
+function accOptions(cur, filter, emptyLabel) {
+  return (emptyLabel ? '<option value="">' + emptyLabel + '</option>' : '') + accList().filter(filter || function () { return true; }).map(function (a) {
+    return '<option value="' + a.id + '"' + (a.id === cur ? ' selected' : '') + '>' + esc(a.icon + ' ' + a.name) + '</option>';
+  }).join('');
+}
+function opSegHtml() {
+  return '<div class="seg seg4">' + OP_TYPES.map(function (t) {
+    return '<button class="' + (F.type === t ? 'on ' + t : '') + '" data-act="op-type" data-t="' + t + '">' + TYPES[t].one + '</button>';
+  }).join('') + '</div>';
+}
+function fillAccDefaults(reset) {
+  var main = mainAcc(), sms = F.smsAcc || '';
+  var stash = accList().find(function (a) { return a.type === 'savings'; }) || accList().find(function (a) { return a.type === 'broker'; });
+  if (reset) { F.account = ''; F.toAccount = ''; }
+  if (F.type === 'transfer' || F.type === 'saving') {
+    if (F.inboxType === 'income') { F.toAccount = F.toAccount || sms; }
+    else { F.account = F.account || sms || (main && main.id) || ''; }
+    if (F.type === 'saving' && !F.toAccount && F.inboxType !== 'income' && stash) F.toAccount = stash.id;
+  } else {
+    F.account = F.account || sms || (main && main.id) || '';
+    F.toAccount = '';
+  }
+}
+function accountFields() {
+  if (!(S.data.accounts || []).length) return '';
+  if (F.type === 'transfer' || F.type === 'saving') {
+    return '<div class="row2"><label>Со счёта<select id="f-acc">' + accOptions(F.account, null, '— выберите —') + '</select></label>' +
+      '<label>На счёт<select id="f-acc2">' + accOptions(F.toAccount, null, F.type === 'saving' ? '— не указан —' : '— выберите —') + '</select></label></div>' +
+      (F.type === 'saving' ? '<p class="muted small" style="margin:-6px 2px 12px">Отложить: с карты на накопительный/брокерский. Снять: со сбережений на карту — сумма вернётся в остаток месяца.</p>' : '');
+  }
+  return '<label>' + (F.type === 'income' ? 'На счёт' : 'Со счёта') + '<select id="f-acc">' + accOptions(F.account) + '</select></label>';
+}
+
+// --- блок «Деньги» на обзоре ---
+function moneySection() {
+  var accs = accList();
+  if (!accs.length) return '';
+  var b = balances(), all = 0;
+  var html = '<div class="section money"><h3>💰 Деньги <button class="btn ghost small" data-act="view" data-v="acc">Счета ›</button></h3>';
+  ACC_GROUPS.forEach(function (g) {
+    var list = accs.filter(function (a) { return g.types.indexOf(a.type) >= 0; });
+    if (!list.length) return;
+    var sum = list.reduce(function (s, a) { return s + b[a.id].shown; }, 0);
+    all += sum;
+    html += '<div class="mgroup"><div class="mhead"><span>' + g.title + '</span><b>' + money(sum) + '</b></div>' + list.map(function (a) {
+      return '<button class="macc" data-act="acc-open" data-id="' + a.id + '"><span>' + esc(a.icon) + ' ' + esc(a.name) + (b[a.id].bank ? ' <i class="sync" title="по SMS банка">✓</i>' : '') + '</span><span class="' + (b[a.id].shown < 0 ? 'neg' : '') + '">' + money(b[a.id].shown) + '</span></button>';
+    }).join('') + '</div>';
+  });
+  return html + '<div class="mhead mtotal"><span>Всего</span><b>' + money(all) + '</b></div></div>';
+}
+
+// --- вкладка «Счета» ---
+function viewAcc() {
+  var b = balances();
+  var html = '<div class="topbar"><div class="title">Счета</div><button class="btn primary small" data-act="acc-new">+ Счёт</button></div>' +
+    '<p class="muted small" style="margin:0 2px 10px">Укажите последние 4 цифры карты и счёта — SMS и пуши банка будут сами привязываться к нужному счёту.</p>';
+  ACC_GROUPS.forEach(function (g) {
+    var list = accList(true).filter(function (a) { return g.types.indexOf(a.type) >= 0; });
+    if (!list.length) return;
+    html += '<div class="section"><h3>' + g.title + '</h3>' + list.map(function (a) {
+      var sub = [a.bank, a.card ? 'карта •' + a.card : '', a.acct ? 'счёт •' + a.acct : ''].filter(String).join(' · ');
+      if (a.archived) sub = 'в архиве';
+      else if (b[a.id].bank) sub += (sub ? ' · ' : '') + 'баланс из SMS ' + fmtAt(a.bankBalanceAt);
+      return '<button class="item' + (a.archived ? ' off' : '') + '" data-act="acc-open" data-id="' + a.id + '"><div class="ico" style="--c:' + a.color + '">' + esc(a.icon) + '</div>' +
+        '<div class="mid"><div class="t1">' + esc(a.name) + (a.main ? ' <small class="muted">· основной</small>' : '') + '</div><div class="t2">' + esc(sub || ACC_TYPES[a.type]) + '</div></div>' +
+        '<div class="amt' + (b[a.id].shown < 0 ? ' neg' : '') + '">' + money(b[a.id].shown) + '</div></button>';
+    }).join('') + '</div>';
+  });
+  return html;
+}
+function fmtAt(s) { if (!s) return ''; var d = s.slice(0, 10), t = s.slice(11, 16); return dayShort(d) + (t ? ' ' + t : ''); }
+function opAccEffect(o, id) {
+  var acc = accOf(o);
+  if (o.type === 'expense') return acc === id ? -o.amount : 0;
+  if (o.type === 'income' || o.type === 'adjust') return acc === id ? o.amount : 0;
+  return (acc === id ? -o.amount : 0) + (o.toAccount === id ? o.amount : 0);
+}
+function openAccount(id) {
+  var a = accById(id), b = balances()[id];
+  if (!a) return;
+  var ops = S.data.ops.filter(function (o) { return opAccEffect(o, id) !== 0; }).sort(function (x, y) { return y.date.localeCompare(x.date); }).slice(0, 25);
+  F = { kind: 'accv', id: id };
+  openSheet(sheetHead(esc(a.icon + ' ' + a.name)) +
+    '<div class="rcsum"><div><b class="' + (b.shown < 0 ? 'neg' : '') + '" style="font-size:22px">' + money(b.shown) + '</b><div class="muted small">' +
+    (b.bank ? 'баланс из SMS банка, ' + fmtAt(a.bankBalanceAt) : 'по операциям в приложении') + '</div></div>' +
+    '<div class="muted small" style="text-align:right">' + ACC_TYPES[a.type] + (a.bank ? '<br>' + esc(a.bank) : '') + '</div></div>' +
+    '<div class="actions" style="margin-bottom:12px">' + (b.bank ? '' : '<button class="btn primary" data-act="acc-fix">Сверить баланс</button>') +
+    '<button class="btn ghost" data-act="acc-edit">Настройки счёта</button></div>' +
+    '<h4 class="rch">Последние операции</h4><div class="section" style="padding:6px">' + (ops.length ? ops.map(function (o) {
+      var v = opAccEffect(o, id);
+      return '<div class="rctot" style="padding:6px 4px"><span>' + dayShort(o.date) + ' · ' + esc(opTitle(o)) + '</span><b class="' + (v < 0 ? 'neg' : 'pos') + '">' + (v > 0 ? '+' : '−') + money(Math.abs(v)) + '</b></div>';
+    }).join('') : '<div class="empty">Операций пока нет</div>') + '</div>');
+}
+function opTitle(o) {
+  if (o.type === 'transfer') return 'Перевод ' + accName(accOf(o)) + ' → ' + accName(o.toAccount);
+  if (o.type === 'adjust') return 'Корректировка баланса' + (o.comment ? ' (' + o.comment + ')' : '');
+  return o.category + (o.comment ? ' · ' + o.comment : '');
+}
+function openReconcile() {
+  var a = accById(F.id), b = balances()[F.id];
+  F = { kind: 'accfix', id: a.id };
+  openSheet(sheetHead('Сверить баланс') +
+    '<p class="muted small" style="margin-bottom:10px">Сейчас в приложении: <b>' + money(b.calc) + '</b>. Введите, сколько на самом деле на «' + esc(a.name) + '» — разница запишется корректировкой и не попадёт в доходы и расходы.</p>' +
+    '<input id="fx-amount" class="amount" inputmode="decimal" placeholder="0 ₽" autocomplete="off">' +
+    '<div class="actions" style="margin-top:12px"><button class="btn ghost" data-act="close">Отмена</button><button class="btn primary" data-act="acc-fix-save">Сохранить</button></div>');
+  setTimeout(function () { var x = $('#fx-amount'); if (x) x.focus(); }, 60);
+}
+function saveReconcile() {
+  var raw = val('fx-amount').trim();
+  var actual = raw.charAt(0) === '-' ? -parseAmount(raw.slice(1)) : parseAmount(raw);
+  if (raw === '' || isNaN(actual)) return toast('Введите сумму', true);
+  var diff = Math.round((actual - balances()[F.id].calc) * 100) / 100;
+  if (!diff) { closeSheet(); return toast('Баланс уже совпадает'); }
+  busy(true);
+  call('saveOperation', { type: 'adjust', date: todayIso(), amount: diff, account: F.id, comment: 'Сверка' })
+    .then(function (saved) { S.data.ops.push(saved); closeSheet(); render(); toast('Баланс сверен: ' + (diff > 0 ? '+' : '−') + money(Math.abs(diff))); })
+    .catch(function (e) { busy(false); toast(e, true); });
+}
+function openAccForm(a) {
+  F = Object.assign({ kind: 'acc', id: '', name: '', type: 'card', bank: '', card: '', acct: '', icon: '💳', color: PALETTE[1], sync: false, main: false, archived: false }, a || {});
+  renderAccForm();
+}
+function syncAccForm() {
+  if (!F || F.kind !== 'acc' || !$('#a-name')) return;
+  F.name = val('a-name'); F.type = val('a-type'); F.bank = val('a-bank'); F.icon = val('a-icon');
+  F.card = val('a-card'); F.acct = val('a-acct');
+  F.sync = $('#a-sync').checked; F.main = $('#a-main').checked; var ar = $('#a-arch'); if (ar) F.archived = ar.checked;
+}
+function renderAccForm() {
+  openSheet(sheetHead(F.id ? 'Настройки счёта' : 'Новый счёт') +
+    '<div class="row2" style="grid-template-columns:80px 1fr"><label>Иконка<input id="a-icon" maxlength="4" style="text-align:center;font-size:20px" value="' + esc(F.icon) + '"></label>' +
+    '<label>Название<input id="a-name" maxlength="40" placeholder="Например: Сбер MIR-2902" value="' + esc(F.name) + '"></label></div>' +
+    '<div class="row2"><label>Тип<select id="a-type">' + Object.keys(ACC_TYPES).map(function (k) {
+      return '<option value="' + k + '"' + (F.type === k ? ' selected' : '') + '>' + ACC_TYPES[k] + '</option>';
+    }).join('') + '</select></label><label>Банк<input id="a-bank" maxlength="40" placeholder="Сбербанк" value="' + esc(F.bank) + '"></label></div>' +
+    '<h4 class="rch">Привязка SMS и пушей</h4>' +
+    '<div class="row2"><label>Карта — последние 4 цифры<input id="a-card" inputmode="numeric" maxlength="4" placeholder="2902" value="' + esc(F.card) + '"></label>' +
+    '<label>Счёт — последние 4 цифры<input id="a-acct" inputmode="numeric" maxlength="4" placeholder="9134" value="' + esc(F.acct) + '"></label></div>' +
+    '<p class="muted small" style="margin:-6px 2px 12px">Где найти: в SMS «Счёт карты MIR-<b>2902</b>», «СЧЁТ<b>9134</b>», в пуше «Плат. счёт •• <b>9134</b>». Достаточно одного из двух, лучше оба.</p>' +
+    '<label class="check"><input type="checkbox" id="a-sync"' + (F.sync ? ' checked' : '') + '>Брать баланс из SMS банка (точнее всего)</label>' +
+    '<label class="check"><input type="checkbox" id="a-main"' + (F.main ? ' checked' : '') + '>Основной — для операций, введённых вручную</label>' +
+    (F.id ? '<label class="check"><input type="checkbox" id="a-arch"' + (F.archived ? ' checked' : '') + '>В архиве (скрыть)</label>' : '') +
+    '<label>Цвет</label><div class="colors">' + PALETTE.map(function (c) {
+      return '<button class="' + (F.color === c ? 'on' : '') + '" style="--c:' + c + '" data-act="acc-color" data-c="' + c + '"></button>';
+    }).join('') + '</div>' +
+    '<div class="actions">' + (F.id ? '<button class="btn danger" data-act="acc-del">Удалить</button>' : '') + '<button class="btn primary" data-act="acc-save">Сохранить</button></div>');
+}
+function saveAccForm() {
+  syncAccForm();
+  if (!F.name.trim()) return toast('Введите название', true);
+  if ((F.card && !/^\d{4}$/.test(F.card)) || (F.acct && !/^\d{4}$/.test(F.acct))) return toast('Нужны ровно 4 цифры', true);
+  busy(true);
+  var isNew = !F.id;
+  call('saveAccount', { id: F.id, name: F.name, type: F.type, bank: F.bank, card: F.card, acct: F.acct, icon: F.icon, color: F.color, sync: F.sync, main: F.main, archived: F.archived })
+    .then(function () {
+      closeSheet(); toast(isNew ? 'Счёт добавлен' : 'Сохранено');
+      return reload();
+    }).catch(function (e) { busy(false); toast(e, true); });
+}
+
+ARGS.saveAccount = ['account']; ARGS.deleteAccount = ['id'];
+NAV.splice(3, 0, { id: 'acc', ic: '💳', t: 'Счета' });
+
+Object.assign(ACTIONS, {
+  'acc-open': function (el) { openAccount(el.dataset.id); },
+  'acc-new': function () { openAccForm(); },
+  'acc-edit': function () { var a = accById(F.id); if (a) openAccForm(Object.assign({}, a)); },
+  'acc-fix': function () { openReconcile(); },
+  'acc-fix-save': function () { saveReconcile(); },
+  'acc-save': function () { saveAccForm(); },
+  'acc-color': function (el) {
+    syncAccForm(); F.color = el.dataset.c;
+    document.querySelectorAll('.colors button').forEach(function (b) { b.classList.toggle('on', b === el); });
+  },
+  'acc-del': function (el) {
+    if (!el.dataset.sure) { el.dataset.sure = '1'; el.textContent = 'Точно удалить?'; return; }
+    busy(true);
+    call('deleteAccount', F.id).then(function (res) {
+      closeSheet(); toast(res && res.archived ? 'По счёту есть операции — он перенесён в архив' : 'Счёт удалён');
+      return reload();
+    }).catch(function (e) { busy(false); toast(e, true); });
+  }
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && F && F.kind === 'accfix' && e.target.id === 'fx-amount') { e.preventDefault(); saveReconcile(); }
+  if (e.key === 'Enter' && F && F.kind === 'acc' && e.target.tagName === 'INPUT' && e.target.type !== 'checkbox') { e.preventDefault(); saveAccForm(); }
+});
+document.addEventListener('change', function (e) {
+  if (F && F.kind === 'op' && (e.target.id === 'f-acc' || e.target.id === 'f-acc2')) { syncOpForm(); }
+  if (F && F.kind === 'rec' && (e.target.id === 'r-acc' || e.target.id === 'r-acc2')) { syncRecForm(); }
 });
 </script>
 </body>
